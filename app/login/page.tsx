@@ -83,14 +83,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-gray-500">
+        {/* <div className="mt-6 text-center text-sm text-gray-500">
           <p>Demo Accounts:</p>
           <ul className="mt-2 space-y-1">
             <li>superadmin@apartmanager.com / password123</li>
             <li>admin1@sunrise.com / password123</li>
             <li>tenant@unit.com / password123</li>
           </ul>
-        </div>
+        </div> */}
       </div>
     </div>
   );
