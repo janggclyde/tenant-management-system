@@ -1,0 +1,6 @@
+{
+  "name": "Apartment SaaS",
+  "description": "Property management for tenants and admins",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
