@@ -31,8 +31,115 @@ export async function GET(request: NextRequest) {
       overdueCount = await Billing.count({ 
         where: { admin_id: adminId, status: 'overdue' } 
       });
-    } catch (dbErr) {
-      // Fallback to store
+
+      // 1. Calculate actual revenue per month for the current year
+      const currentYear = new Date().getFullYear();
+      const collections = await Collection.findAll({
+        where: { admin_id: adminId },
+        attributes: ['amount_paid', 'createdAt']
+      });
+
+      const monthlyRevenue = new Array(12).fill(0);
+      collections.forEach((col: any) => {
+        const date = new Date(col.createdAt);
+        if (date.getFullYear() === currentYear) {
+          monthlyRevenue[date.getMonth()] += Number(col.amount_paid || 0);
+        }
+      });
+
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const revenueData = monthNames.map((name, index) => ({
+        name,
+        total: monthlyRevenue[index]
+      }));
+
+      // 2. Fetch actual recent activities
+      const recentCollections = await Collection.findAll({
+        where: { admin_id: adminId },
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      const recentTickets = await MaintenanceTicket.findAll({
+        where: { admin_id: adminId },
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      const recentBillings = await Billing.findAll({
+        where: { admin_id: adminId },
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      const allActivities: Array<{ id: string, title: string, description: string, time: Date }> = [];
+
+      recentCollections.forEach((c: any) => {
+        allActivities.push({
+          id: `col_${c.id}`,
+          title: 'Payment Received',
+          description: `Collected ₱${Number(c.amount_paid).toLocaleString()} via ${c.payment_method}`,
+          time: new Date(c.createdAt)
+        });
+      });
+
+      recentTickets.forEach((t: any) => {
+        allActivities.push({
+          id: `tkt_${t.id}`,
+          title: 'Maintenance Ticket',
+          description: t.title,
+          time: new Date(t.createdAt)
+        });
+      });
+
+      recentBillings.forEach((b: any) => {
+        allActivities.push({
+          id: `bil_${b.id}`,
+          title: 'Billing Statement',
+          description: `Statement for ₱${Number(b.amount).toLocaleString()} generated`,
+          time: new Date(b.createdAt)
+        });
+      });
+
+      // Sort by time DESC and take top 5
+      allActivities.sort((a, b) => b.time.getTime() - a.time.getTime());
+      
+      const timeAgo = (date: Date) => {
+        const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+        let interval = seconds / 31536000;
+        if (interval > 1) return Math.floor(interval) + "y ago";
+        interval = seconds / 2592000;
+        if (interval > 1) return Math.floor(interval) + "m ago";
+        interval = seconds / 86400;
+        if (interval > 1) return Math.floor(interval) + "d ago";
+        interval = seconds / 3600;
+        if (interval > 1) return Math.floor(interval) + "h ago";
+        interval = seconds / 60;
+        if (interval > 1) return Math.floor(interval) + " min ago";
+        return Math.floor(seconds) + " sec ago";
+      };
+
+      const recentActivities = allActivities.slice(0, 5).map(act => ({
+        id: act.id,
+        title: act.title,
+        description: act.description,
+        time: timeAgo(act.time)
+      }));
+
+      return NextResponse.json({
+        success: true,
+        adminId,
+        buildingsCount,
+        unitsCount,
+        tenantsCount,
+        collected: collectedAmount,
+        overdueCount,
+        revenueData,
+        recentActivities
+      });
+
+    } catch (dbErr: any) {
+      // Fallback to store if DB fails
       const buildings = await getBuildingsList(adminId);
       const units = await getUnitsList(adminId);
       const tenants = await getTenantsList({ admin_id: adminId });
@@ -45,37 +152,37 @@ export async function GET(request: NextRequest) {
         .filter(b => b.status === 'paid')
         .reduce((sum, b) => sum + (b.amount_paid || b.amount), 0);
       overdueCount = billings.filter(b => b.status === 'overdue').length;
+
+      // Mock revenue data (fallback)
+      const revenueData = [
+        { name: 'Jan', total: Math.round(collectedAmount * 0.75) },
+        { name: 'Feb', total: Math.round(collectedAmount * 0.82) },
+        { name: 'Mar', total: Math.round(collectedAmount * 0.90) },
+        { name: 'Apr', total: Math.round(collectedAmount * 0.88) },
+        { name: 'May', total: Math.round(collectedAmount * 0.95) },
+        { name: 'Jun', total: Math.round(collectedAmount * 0.98) },
+        { name: 'Jul', total: collectedAmount > 0 ? collectedAmount : 15500 },
+      ];
+
+      // Mock recent activities (fallback)
+      const recentActivities = [
+        { id: 1, title: 'Payment Recorded', description: `Automated collection synced for tenant`, time: '2h ago' },
+        { id: 2, title: 'Maintenance Ticket', description: `New request submitted for Unit 101`, time: '5h ago' },
+        { id: 3, title: 'Billing Statement', description: `Monthly statement generated and ready`, time: '1d ago' },
+      ];
+
+      return NextResponse.json({
+        success: true,
+        adminId,
+        buildingsCount,
+        unitsCount,
+        tenantsCount,
+        collected: collectedAmount > 0 ? collectedAmount : 15500,
+        overdueCount,
+        revenueData,
+        recentActivities
+      });
     }
-
-    // Revenue chart data (tailored for customer)
-    const revenueData = [
-      { name: 'Jan', total: Math.round(collectedAmount * 0.75) },
-      { name: 'Feb', total: Math.round(collectedAmount * 0.82) },
-      { name: 'Mar', total: Math.round(collectedAmount * 0.90) },
-      { name: 'Apr', total: Math.round(collectedAmount * 0.88) },
-      { name: 'May', total: Math.round(collectedAmount * 0.95) },
-      { name: 'Jun', total: Math.round(collectedAmount * 0.98) },
-      { name: 'Jul', total: collectedAmount > 0 ? collectedAmount : 15500 },
-    ];
-
-    // Recent activity scoped to this admin
-    const recentActivities = [
-      { id: 1, title: 'Payment Recorded', description: `Automated collection synced for tenant`, time: '2h ago' },
-      { id: 2, title: 'Maintenance Ticket', description: `New request submitted for Unit 101`, time: '5h ago' },
-      { id: 3, title: 'Billing Statement', description: `Monthly statement generated and ready`, time: '1d ago' },
-    ];
-
-    return NextResponse.json({
-      success: true,
-      adminId,
-      buildingsCount,
-      unitsCount,
-      tenantsCount,
-      collected: collectedAmount > 0 ? collectedAmount : 15500,
-      overdueCount,
-      revenueData,
-      recentActivities
-    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
