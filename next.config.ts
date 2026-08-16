@@ -3,7 +3,7 @@ const path = require("path");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["sequelize"],
+  serverExternalPackages: ["sequelize", "mysql2"],
   eslint: {
     ignoreDuringBuilds: true,
   },

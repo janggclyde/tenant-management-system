@@ -1,5 +1,6 @@
 import { Sequelize, DataTypes } from "sequelize";
 import dotenv from "dotenv";
+import mysql2 from "mysql2";
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST!,
     port: Number(process.env.DB_PORT),
     dialect: "mysql",
-
+    dialectModule: mysql2,
     dialectOptions: {
       ssl: {
         rejectUnauthorized: false,
