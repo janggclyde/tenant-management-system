@@ -11,24 +11,31 @@ const dbUrl = process.env.DATABASE_URL || "mysql://root:@localhost:3306/sylvia";
 //   logging: false,
 // });
 
-const sequelize = new Sequelize(
-  process.env.DB_NAME!,
-  process.env.DB_USERNAME!,
-  process.env.DB_PASSWORD!,
-  {
-    host: process.env.DB_HOST!,
-    port: Number(process.env.DB_PORT),
-    dialect: "mysql",
-    dialectModule: mysql2,
-    dialectOptions: {
-      ssl: {
-        rejectUnauthorized: false,
-      },
+const sequelizeOptions = {
+  host: process.env.DB_HOST!,
+  port: Number(process.env.DB_PORT),
+  dialect: "mysql" as const,
+  dialectModule: mysql2,
+  dialectOptions: {
+    ssl: {
+      rejectUnauthorized: false,
     },
-
-    logging: false,
   },
-);
+  logging: false,
+};
+
+const sequelize =
+  (global as any).sequelize ||
+  new Sequelize(
+    process.env.DB_NAME!,
+    process.env.DB_USERNAME!,
+    process.env.DB_PASSWORD!,
+    sequelizeOptions
+  );
+
+if (process.env.NODE_ENV !== "production") {
+  (global as any).sequelize = sequelize;
+}
 
 export const User = sequelize.define("User", {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -36,7 +43,7 @@ export const User = sequelize.define("User", {
     type: DataTypes.ENUM("tenant", "admin", "super_admin"),
     allowNull: false,
   },
-  email: { type: DataTypes.STRING, unique: true, allowNull: false },
+  email: { type: DataTypes.STRING, unique: true, allowNull: true },
   password_hash: { type: DataTypes.STRING, allowNull: false },
   status: { type: DataTypes.STRING, defaultValue: "active" },
   tier_id: { type: DataTypes.INTEGER, allowNull: true },
@@ -315,7 +322,7 @@ export async function syncDatabase() {
   if (!isSynced) {
     try {
       await sequelize.authenticate();
-      await sequelize.sync({ alter: true });
+      // await sequelize.sync({ alter: true }); // Disabled for performance. Use migrations instead.
       isSynced = true;
     } catch (err: any) {
       // If DB is offline, continue gracefully

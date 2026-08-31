@@ -12,6 +12,21 @@ export async function GET(request: NextRequest) {
     await syncDatabase();
     const adminId = await getAdminIdFromRequest(request);
 
+    const timeAgo = (date: Date) => {
+      const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+      let interval = seconds / 31536000;
+      if (interval > 1) return Math.floor(interval) + "y ago";
+      interval = seconds / 2592000;
+      if (interval > 1) return Math.floor(interval) + "m ago";
+      interval = seconds / 86400;
+      if (interval > 1) return Math.floor(interval) + "d ago";
+      interval = seconds / 3600;
+      if (interval > 1) return Math.floor(interval) + "h ago";
+      interval = seconds / 60;
+      if (interval > 1) return Math.floor(interval) + " min ago";
+      return Math.floor(seconds) + " sec ago";
+    };
+
     let buildingsCount = 0;
     let unitsCount = 0;
     let tenantsCount = 0;
@@ -104,21 +119,6 @@ export async function GET(request: NextRequest) {
       // Sort by time DESC and take top 5
       allActivities.sort((a, b) => b.time.getTime() - a.time.getTime());
       
-      const timeAgo = (date: Date) => {
-        const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-        let interval = seconds / 31536000;
-        if (interval > 1) return Math.floor(interval) + "y ago";
-        interval = seconds / 2592000;
-        if (interval > 1) return Math.floor(interval) + "m ago";
-        interval = seconds / 86400;
-        if (interval > 1) return Math.floor(interval) + "d ago";
-        interval = seconds / 3600;
-        if (interval > 1) return Math.floor(interval) + "h ago";
-        interval = seconds / 60;
-        if (interval > 1) return Math.floor(interval) + " min ago";
-        return Math.floor(seconds) + " sec ago";
-      };
-
       const recentActivities = allActivities.slice(0, 5).map(act => ({
         id: act.id,
         title: act.title,
@@ -164,12 +164,35 @@ export async function GET(request: NextRequest) {
         { name: 'Jul', total: collectedAmount > 0 ? collectedAmount : 15500 },
       ];
 
-      // Mock recent activities (fallback)
-      const recentActivities = [
-        { id: 1, title: 'Payment Recorded', description: `Automated collection synced for tenant`, time: '2h ago' },
-        { id: 2, title: 'Maintenance Ticket', description: `New request submitted for Unit 101`, time: '5h ago' },
-        { id: 3, title: 'Billing Statement', description: `Monthly statement generated and ready`, time: '1d ago' },
-      ];
+      // Build dynamic recent activities from billings scoped to admin
+      const allActivities: Array<{ id: string, title: string, description: string, time: Date }> = [];
+      
+      billings.forEach((b: any) => {
+        allActivities.push({
+          id: `bil_${b.id}`,
+          title: 'Billing Statement',
+          description: `Statement for ₱${Number(b.amount).toLocaleString()} generated`,
+          time: b.created_at ? new Date(b.created_at) : new Date()
+        });
+        
+        if (b.status === 'paid' || (b.amount_paid && b.amount_paid > 0)) {
+          allActivities.push({
+            id: `col_${b.id}`,
+            title: 'Payment Recorded',
+            description: `Collected ₱${Number(b.amount_paid || b.amount).toLocaleString()}`,
+            time: b.created_at ? new Date(new Date(b.created_at).getTime() + 86400000) : new Date()
+          });
+        }
+      });
+
+      allActivities.sort((a, b) => b.time.getTime() - a.time.getTime());
+
+      const recentActivities = allActivities.slice(0, 5).map(act => ({
+        id: act.id,
+        title: act.title,
+        description: act.description,
+        time: timeAgo(act.time)
+      }));
 
       return NextResponse.json({
         success: true,

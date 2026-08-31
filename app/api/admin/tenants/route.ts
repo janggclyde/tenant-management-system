@@ -33,9 +33,6 @@ export async function POST(request: NextRequest) {
     if (!last_name || !last_name.trim()) {
       return NextResponse.json({ success: false, error: 'Last name is required.' }, { status: 400 });
     }
-    if (!email || !email.trim()) {
-      return NextResponse.json({ success: false, error: 'Email address is required.' }, { status: 400 });
-    }
     if (!unit_id) {
       return NextResponse.json({ success: false, error: 'Assigned unit is required.' }, { status: 400 });
     }
@@ -47,7 +44,7 @@ export async function POST(request: NextRequest) {
       admin_id: adminId,
       first_name: first_name.trim(),
       last_name: last_name.trim(),
-      email: email.trim(),
+      email: email ? email.trim() : undefined,
       emergency_contact: emergency_contact ? emergency_contact.trim() : '',
       unit_id: Number(unit_id),
       move_in_date: String(move_in_date),

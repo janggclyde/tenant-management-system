@@ -48,6 +48,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
       const doc = new PDFDocument({
         size: "A4",
         margin: 50,
+        font: "Times-Roman",
         info: {
           Title: `Billing Statement - #${billData.id}`,
           Author: billData.platform_name || "ApartManager SaaS",
@@ -86,11 +87,11 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         );
 
       // Document Title & Invoice Badge on Top Right
-      doc
-        .fillColor(primaryColor)
-        .font("Times-Bold")
-        .fontSize(18)
-        .text("STATEMENT OF ACCOUNT", 320, 50, { align: "right", width: 225 });
+      // doc
+      //   .fillColor(primaryColor)
+      //   .font("Times-Bold")
+      //   .fontSize(18)
+      //   .text("STATEMENT OF ACCOUNT", 320, 50, { align: "right", width: 225 });
 
       doc
         .fillColor("#059669") // Emerald Green for Posted / Active
@@ -324,14 +325,16 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
             tableY + 7,
             { align: "right", width: 90 },
           );
-
       }
 
       // Rows: Extra Charges (If any)
-      if (billData.extra_charges_json && Array.isArray(billData.extra_charges_json)) {
+      if (
+        billData.extra_charges_json &&
+        Array.isArray(billData.extra_charges_json)
+      ) {
         billData.extra_charges_json.forEach((charge) => {
           const cost = Number(charge.amount || 0);
-          
+
           doc.rect(50, tableY, 495, 24).fillAndStroke("#ffffff", borderColor);
 
           doc
@@ -344,11 +347,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
             .fillColor(secondaryColor)
             .font("Times-Roman")
             .fontSize(8.5)
-            .text(
-              "Additional Charge",
-              250,
-              tableY + 7,
-            );
+            .text("Additional Charge", 250, tableY + 7);
 
           doc
             .fillColor("#0f172a")
@@ -553,7 +552,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
 export async function generateReceiptPDF(receiptData: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: "A4", margin: 50 });
+      const doc = new PDFDocument({ size: "A4", margin: 50, font: "Times-Roman" });
       let buffers: Buffer[] = [];
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", () => {

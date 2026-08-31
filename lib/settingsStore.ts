@@ -87,7 +87,7 @@ let mockSettings: SystemSettingsRecord = {
   hitpay_mode: "sandbox",
   currency: "PHP",
   tax_rate_default: 12.0,
-  email_provider: "smtp",
+  email_provider: "resend",
   email_api_key: "VY8ufF4LGi4CGvK0acU8S5Jw08s7",
   smtp_host: "smtp.emailsbit.com",
   smtp_port: 505,

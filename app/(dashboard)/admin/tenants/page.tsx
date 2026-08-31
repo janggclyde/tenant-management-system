@@ -102,7 +102,7 @@ export default function TenantsPage() {
         const q = searchQuery.toLowerCase().trim();
         const matchesQuery = 
           t.full_name.toLowerCase().includes(q) ||
-          t.email.toLowerCase().includes(q) ||
+          (t.email && t.email.toLowerCase().includes(q)) ||
           t.unit_number.toLowerCase().includes(q) ||
           t.building_name.toLowerCase().includes(q);
         if (!matchesQuery) return false;
@@ -137,7 +137,7 @@ export default function TenantsPage() {
     setFormData({
       first_name: t.first_name || t.full_name.split(' ')[0] || '',
       last_name: t.last_name || t.full_name.split(' ').slice(1).join(' ') || '',
-      email: t.email,
+      email: t.email || '',
       emergency_contact: t.emergency_contact || '',
       unit_id: t.unit_id.toString(),
       move_in_date: t.move_in_date || defaultMoveIn,

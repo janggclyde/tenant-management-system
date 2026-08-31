@@ -4,6 +4,9 @@ const path = require("path");
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["sequelize", "mysql2"],
+  experimental: {
+    // optimizePackageImports: ["lucide-react", "recharts"],
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -21,7 +24,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  output: "standalone",
+  // output: "standalone", // Disabled to avoid Windows nft trace error on Next.js 15
   transpilePackages: ["motion"],
   webpack: (config, { isServer }) => {
     if (isServer) {
@@ -30,7 +33,7 @@ const nextConfig: NextConfig = {
           patterns: [
             {
               from: path.join(__dirname, "node_modules/pdfkit/js/data"),
-              to: path.join(__dirname, ".next/server/vendor-chunks/data"),
+              to: path.join(__dirname, ".next/server/chunks/data"),
             },
           ],
         }),

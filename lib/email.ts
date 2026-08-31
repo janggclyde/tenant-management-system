@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { getSystemSettings } from "./settingsStore";
 import { generateBillPDF, BillPDFData } from "./pdf";
 import { getBillingById } from "./billingsStore";
@@ -46,11 +47,15 @@ export async function sendEmail(
   }
 
   const settings = await getSystemSettings();
+  console.log("///settings", settings);
   const fromName =
     senderNameOverride ||
     settings.default_sender_name ||
     "ApartManager Platform";
-  const fromEmail = settings.default_sender_email || "sylvia@shieldhaus.uk";
+  let fromEmail = settings.default_sender_email || "sylvia@shieldhaus.uk";
+  // if (fromEmail === "noreply@aptsaas.com") {
+  //   fromEmail = "sylvia@shieldhaus.uk";
+  // }
   const from = `"${fromName}" <${fromEmail}>`;
 
   // Determine SMTP Configuration based on settings
@@ -61,11 +66,51 @@ export async function sendEmail(
   let isSecure = smtpPort === 465 || smtpPort === 505;
 
   if (settings.email_provider === "resend") {
-    smtpHost = "smtp.resend.com";
-    smtpPort = 465;
-    smtpUser = "resend";
-    smtpPass = settings.email_api_key;
-    isSecure = true;
+    const resend = new Resend(
+      settings.email_api_key || process.env.RESEND_API_KEY,
+    );
+    console.log(
+      `[Email Service] Attempting dispatch to "${to}" via Resend API (From: ${from})`,
+    );
+    try {
+      const { data, error } = await resend.emails.send({
+        from,
+        to,
+        replyTo: replyTo || fromEmail,
+        subject,
+        html,
+        attachments: attachments?.map((att) => ({
+          filename: att.filename,
+          content: att.content,
+        })),
+        headers: {
+          "X-Priority": "3",
+          "X-Mailer": "ApartManager",
+          Precedence: "bulk",
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      console.log(
+        `[Email Service] Email successfully sent! MessageId: ${data?.id}`,
+      );
+      return {
+        success: true,
+        messageId: data?.id,
+        mode: "resend_api",
+        provider: "resend",
+        from,
+        to,
+      };
+    } catch (err: any) {
+      console.error(`[Email Service] Resend API dispatch error:`, err);
+      throw new Error(
+        `Email delivery failed: ${err.message || "Resend API error"}`,
+      );
+    }
   } else if (settings.email_provider === "sendgrid") {
     smtpHost = "smtp.sendgrid.net";
     smtpPort = 505;
@@ -140,7 +185,7 @@ export async function sendEmail(
 export function generateBillingEmailTemplate(billing: any, settings: any) {
   const brandPrimary = settings.default_colors?.primary || "#2563EB";
   const brandName = settings.platform_name || "ApartManager";
-  const supportEmail = settings.support_email || "support@apartmanager.com";
+  const supportEmail = settings.support_email || "19103541@usc.edu.ph";
   const tenantName = billing.tenant_name || "Tenant";
   const unitNumber = billing.unit_number || "Unit";
   const buildingName = billing.building_name || "Building";
@@ -189,7 +234,7 @@ export function generateBillingEmailTemplate(billing: any, settings: any) {
               </table>
 
               <p style="margin:0 0 16px;font-size:14px;color:#555;">
-                Your statement PDF is attached. You can pay through your tenant portal or via bank transfer.
+                Your statement PDF is attached. Please pay on or defore the said due date.
               </p>
               
               <p style="margin:0;font-size:13px;color:#888;">
