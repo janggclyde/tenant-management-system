@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   try {
     const adminId = await getAdminIdFromRequest(request);
     const body = await request.json();
-    const { first_name, last_name, email, emergency_contact, unit_id, move_in_date, move_out_date, document_url } = body;
+    const { first_name, last_name, email, emergency_contact, unit_id, move_in_date, move_out_date, document_url, password } = body;
 
     // Validation
     if (!first_name || !first_name.trim()) {
@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
       unit_id: Number(unit_id),
       move_in_date: String(move_in_date),
       move_out_date: move_out_date ? String(move_out_date) : undefined,
-      document_url: document_url ? String(document_url) : undefined
+      document_url: document_url ? String(document_url) : undefined,
+      password: password ? String(password) : undefined
     });
 
     return NextResponse.json({ success: true, tenant: result }, { status: 201 });

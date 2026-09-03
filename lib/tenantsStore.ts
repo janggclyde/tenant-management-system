@@ -6,6 +6,7 @@ import {
   Building,
   syncDatabase,
 } from "@/db/models";
+import bcrypt from "bcrypt";
 
 export interface TenantRecord {
   id: number;
@@ -129,21 +130,26 @@ function applyTenantFilters(
 export async function createTenant(data: {
   first_name: string;
   last_name: string;
-  email: string;
+  email?: string;
   emergency_contact?: string;
   unit_id: number;
   move_in_date: string;
   move_out_date?: string;
   document_url?: string;
   admin_id?: number;
+  password?: string;
 }) {
   const admin_id = data.admin_id || 2;
   try {
+    const currentYear = new Date().getFullYear();
+    const generatedPassword = data.password || `${data.last_name}${currentYear}`;
+    const passwordHash = await bcrypt.hash(generatedPassword, 10);
+
     // Create User record for the tenant
     const user: any = await User.create({
       role: "tenant",
-      email: data.email,
-      password_hash: "$2b$10$defaultpasswordhashplaceholder",
+      email: data.email || null,
+      password_hash: passwordHash,
       status: "active",
     });
 
@@ -233,9 +239,9 @@ export async function updateTenant(
       await tenant.save();
 
       // Update User email
-      if (data.email) {
+      if (data.email !== undefined) {
         await User.update(
-          { email: data.email },
+          { email: data.email || null },
           { where: { id: tenant.user_id } },
         );
       }

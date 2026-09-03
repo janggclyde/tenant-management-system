@@ -51,8 +51,8 @@ export default function TenantsPage() {
   const [deletingTenant, setDeletingTenant] = useState<TenantRecord | null>(null);
 
   // Form State
-  const defaultMoveIn = new Date().toISOString().split('T')[0];
-  const defaultMoveOut = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const getDefaultMoveIn = () => new Date().toISOString().split('T')[0];
+  const getDefaultMoveOut = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -60,10 +60,19 @@ export default function TenantsPage() {
     email: '',
     emergency_contact: '',
     unit_id: '',
-    move_in_date: defaultMoveIn,
-    move_out_date: defaultMoveOut,
-    document_url: ''
+    move_in_date: '',
+    move_out_date: '',
+    document_url: '',
+    password: ''
   });
+
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      move_in_date: getDefaultMoveIn(),
+      move_out_date: getDefaultMoveOut()
+    }));
+  }, []);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -123,9 +132,10 @@ export default function TenantsPage() {
       email: '',
       emergency_contact: '',
       unit_id: units[0] ? units[0].id.toString() : '',
-      move_in_date: defaultMoveIn,
-      move_out_date: defaultMoveOut,
-      document_url: ''
+      move_in_date: getDefaultMoveIn(),
+      move_out_date: getDefaultMoveOut(),
+      document_url: '',
+      password: ''
     });
     setFormError(null);
     setIsFormModalOpen(true);
@@ -140,9 +150,10 @@ export default function TenantsPage() {
       email: t.email || '',
       emergency_contact: t.emergency_contact || '',
       unit_id: t.unit_id.toString(),
-      move_in_date: t.move_in_date || defaultMoveIn,
-      move_out_date: t.move_out_date || defaultMoveOut,
-      document_url: t.document_url || ''
+      move_in_date: t.move_in_date || getDefaultMoveIn(),
+      move_out_date: t.move_out_date || getDefaultMoveOut(),
+      document_url: t.document_url || '',
+      password: ''
     });
     setFormError(null);
     setIsFormModalOpen(true);
@@ -161,10 +172,7 @@ export default function TenantsPage() {
       setFormError('Last name is required.');
       return;
     }
-    if (!formData.email.trim()) {
-      setFormError('Email address is required.');
-      return;
-    }
+
     if (!formData.unit_id) {
       setFormError('Please assign a property unit to the tenant.');
       return;
@@ -206,7 +214,8 @@ export default function TenantsPage() {
             unit_id: Number(formData.unit_id),
             move_in_date: formData.move_in_date,
             move_out_date: formData.move_out_date,
-            document_url: formData.document_url.trim()
+            document_url: formData.document_url.trim(),
+            password: formData.password
           })
         });
         const data = await res.json();
@@ -578,14 +587,13 @@ export default function TenantsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Email Address *</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Email Address (Optional)</label>
                     <input
                       type="email"
                       value={formData.email}
                       onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                       placeholder="e.g. john.doe@example.com"
                       className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      required
                     />
                   </div>
 
@@ -600,6 +608,19 @@ export default function TenantsPage() {
                     />
                   </div>
                 </div>
+
+                {!editingTenant && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Password (Optional)</label>
+                    <input
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder="Leave empty to auto-generate"
+                      className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* CONTRACT & LEASE DETAILS */}
