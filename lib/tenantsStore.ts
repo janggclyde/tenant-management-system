@@ -144,11 +144,14 @@ export async function createTenant(data: {
     const currentYear = new Date().getFullYear();
     const generatedPassword = data.password || `${data.last_name}${currentYear}`;
     const passwordHash = await bcrypt.hash(generatedPassword, 10);
+    
+    // Fallback email since DB column cannot be null
+    const finalEmail = data.email || `tenant_${Date.now()}_${Math.floor(Math.random() * 10000)}@noemail.local`;
 
     // Create User record for the tenant
     const user: any = await User.create({
       role: "tenant",
-      email: data.email || null,
+      email: finalEmail,
       password_hash: passwordHash,
       status: "active",
     });
@@ -178,39 +181,9 @@ export async function createTenant(data: {
     await Unit.update({ status: "occupied" }, { where: { id: data.unit_id } });
 
     return { tenant, user, contract };
-  } catch (err) {
-    // DB Fallback
-    const newTenantId =
-      mockTenants.length > 0
-        ? Math.max(...mockTenants.map((t) => t.id)) + 1
-        : 1;
-    const newUserId = 100 + newTenantId;
-    const newContractId = 200 + newTenantId;
-
-    const fullName = `${data.first_name} ${data.last_name}`.trim();
-    const newTenantRecord: TenantRecord = {
-      id: newTenantId,
-      admin_id,
-      user_id: newUserId,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      full_name: fullName,
-      email: data.email,
-      emergency_contact: data.emergency_contact || "N/A",
-      status: "active",
-      contract_id: newContractId,
-      unit_id: Number(data.unit_id),
-      unit_number: `Unit #${data.unit_id}`,
-      building_id: 1,
-      building_name: "Sunrise Apartments",
-      move_in_date: data.move_in_date,
-      move_out_date: data.move_out_date || "",
-      document_url: data.document_url || "",
-      monthly_rent: 15000.0,
-    };
-
-    mockTenants.unshift(newTenantRecord);
-    return newTenantRecord;
+  } catch (err: any) {
+    console.error("DB Error:", err);
+    throw err;
   }
 }
 
