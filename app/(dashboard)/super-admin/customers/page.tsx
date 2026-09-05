@@ -314,9 +314,12 @@ export default function CustomersPage() {
     }
   };
 
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Delete Customer
   const handleDeleteConfirm = async () => {
     if (!deletingCustomer) return;
+    setIsDeleting(true);
     try {
       const res = await fetch(`/api/super-admin/customers/${deletingCustomer.id}`, {
         method: 'DELETE'
@@ -334,6 +337,8 @@ export default function CustomersPage() {
       fetchData();
     } catch (err: any) {
       showToast(err.message || 'Failed to delete customer', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1175,9 +1180,17 @@ export default function CustomersPage() {
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-xs cursor-pointer"
+                disabled={isDeleting}
+                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
               >
-                Yes, Delete Customer
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Yes, Delete Customer</span>
+                )}
               </button>
             </div>
           </div>

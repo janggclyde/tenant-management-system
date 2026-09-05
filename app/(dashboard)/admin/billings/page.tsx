@@ -743,9 +743,12 @@ export default function BillingsPage() {
     setIsPostConfirmModalOpen(true);
   };
 
+  const [isPosting, setIsPosting] = useState(false);
+
   // Execute Confirmed Post Bill Action
   const handleConfirmPostBill = async () => {
     if (!postingBilling) return;
+    setIsPosting(true);
     try {
       const res = await fetch(`/api/admin/billings/${postingBilling.id}`, {
         method: "PUT",
@@ -764,12 +767,17 @@ export default function BillingsPage() {
       }
     } catch (err) {
       showToast("Error publishing billing invoice", "error");
+    } finally {
+      setIsPosting(false);
     }
   };
+
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Handle Delete Confirmation
   const handleDeleteConfirm = async () => {
     if (!deletingBilling) return;
+    setIsDeleting(true);
     try {
       const res = await fetch(`/api/admin/billings/${deletingBilling.id}`, {
         method: "DELETE",
@@ -784,6 +792,8 @@ export default function BillingsPage() {
       }
     } catch (err) {
       alert("Error deleting billing record");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -2234,10 +2244,20 @@ export default function BillingsPage() {
               </button>
               <button
                 onClick={handleConfirmPostBill}
-                className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                disabled={isPosting}
+                className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <Send className="w-3.5 h-3.5" />
-                <span>Confirm & Post Bill</span>
+                {isPosting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Posting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Confirm & Post Bill</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -2533,9 +2553,17 @@ export default function BillingsPage() {
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+                disabled={isDeleting}
+                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
               >
-                Yes, Delete Bill
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Yes, Delete Bill</span>
+                )}
               </button>
             </div>
           </div>

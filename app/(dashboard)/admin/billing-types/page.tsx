@@ -207,9 +207,12 @@ export default function BillingTypesPage() {
     }
   };
 
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Delete Confirm
   const handleDeleteConfirm = async () => {
     if (!deletingType) return;
+    setIsDeleting(true);
     try {
       const res = await fetch(`/api/admin/billing-types/${deletingType.id}`, {
         method: 'DELETE'
@@ -224,6 +227,8 @@ export default function BillingTypesPage() {
       }
     } catch (err) {
       alert('Error deleting billing type');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -759,9 +764,17 @@ export default function BillingTypesPage() {
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+                disabled={isDeleting}
+                className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
               >
-                Yes, Delete
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Yes, Delete</span>
+                )}
               </button>
             </div>
           </div>
