@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const adminId = await getAdminIdFromRequest(request);
     const body = await request.json();
-    const { billing_type_id, base_amount, posting_date, custom_due_date, custom_late_fee, meter_readings } = body;
+    const { billing_type_id, base_amount, billing_cycle, posting_date, custom_due_date, custom_late_fee, meter_readings } = body;
 
     if (!billing_type_id) {
       return NextResponse.json(
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       admin_id: adminId,
       billing_type_id: Number(billing_type_id),
       base_amount: Number(base_amount),
+      billing_cycle: billing_cycle ? String(billing_cycle) : undefined,
       posting_date: posting_date ? String(posting_date) : undefined,
       custom_due_date: custom_due_date ? String(custom_due_date) : undefined,
       custom_late_fee: custom_late_fee ? Number(custom_late_fee) : undefined,

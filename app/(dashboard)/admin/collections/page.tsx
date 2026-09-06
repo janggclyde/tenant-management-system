@@ -1,50 +1,207 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Plus, Download, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { 
+  Search, 
+  Plus, 
+  Download, 
+  CheckCircle2, 
+  Clock, 
+  AlertCircle, 
+  Receipt, 
+  CreditCard,
+  Loader2,
+  X,
+  DollarSign
+} from 'lucide-react';
+import Link from 'next/link';
+import { BillingRecord } from '@/lib/billingsStore';
+import { CollectionRecord } from '@/lib/collectionsStore';
 
 export default function CollectionsPage() {
   const [activeTab, setActiveTab] = useState<'for_collection' | 'collected' | 'advanced'>('for_collection');
+  const [billings, setBillings] = useState<BillingRecord[]>([]);
+  const [collections, setCollections] = useState<CollectionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Payment Modal State
+  const [paymentModalBilling, setPaymentModalBilling] = useState<BillingRecord | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'qr'>('cash');
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [bRes, cRes] = await Promise.all([
+        fetch('/api/admin/billings'),
+        fetch('/api/admin/collections')
+      ]);
+      const bData = await bRes.json();
+      const cData = await cRes.json();
+
+      if (bData.success) setBillings(bData.billings || []);
+      if (cData.success) setCollections(cData.collections || []);
+    } catch (err) {
+      console.error('Failed to load collections data', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Filter billings that need collection (posted or overdue with remaining balance)
+  const pendingBillings = useMemo(() => {
+    return billings.filter(b => {
+      const isPending = (b.status === 'posted' || b.status === 'overdue') && 
+        (!b.amount_paid || b.amount_paid < b.amount);
+      if (!isPending) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        return (
+          b.tenant_name?.toLowerCase().includes(q) ||
+          b.unit_number?.toLowerCase().includes(q) ||
+          b.building_name?.toLowerCase().includes(q) ||
+          b.billing_type_name?.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [billings, searchQuery]);
+
+  // Filter collected records
+  const filteredCollections = useMemo(() => {
+    return collections.filter(c => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        return (
+          c.tenant_name?.toLowerCase().includes(q) ||
+          c.unit_number?.toLowerCase().includes(q) ||
+          c.building_name?.toLowerCase().includes(q) ||
+          c.hitpay_reference?.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [collections, searchQuery]);
+
+  const handleOpenPaymentModal = (billing: BillingRecord) => {
+    setPaymentModalBilling(billing);
+    const balance = Math.max(0, billing.amount - (billing.amount_paid || 0));
+    setPaymentAmount(balance.toString());
+    setPaymentMethod('cash');
+    setPaymentError(null);
+  };
+
+  const handleRecordPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentModalBilling) return;
+
+    const amt = Number(paymentAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setPaymentError('Please enter a valid payment amount.');
+      return;
+    }
+
+    setPaymentSubmitting(true);
+    setPaymentError(null);
+
+    try {
+      const res = await fetch('/api/admin/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          billing_id: paymentModalBilling.id,
+          amount_paid: amt,
+          payment_method: paymentMethod,
+          status: 'completed',
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to record collection');
+
+      setPaymentModalBilling(null);
+      showToast(`Payment of ₱${amt.toLocaleString()} recorded successfully!`);
+      fetchData();
+    } catch (err: any) {
+      setPaymentError(err.message || 'Error recording payment.');
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  };
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 text-sm">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Collections</h1>
-          <p className="text-gray-500 mt-1">Manage billings, payments, and receipts.</p>
+          <p className="text-gray-500 mt-1">Manage receivables, record payments, and track receipts.</p>
         </div>
-        <a href="/admin/billings" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center">
-          <Plus className="w-4 h-4 mr-2" />
-          Create Draft Bill
-        </a>
+        <Link 
+          href="/admin/billings" 
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center shadow-xs"
+        >
+          <Plus className="w-4 h-4 mr-1.5" />
+          <span>Create Draft Bill</span>
+        </Link>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="border-b border-gray-200">
+      <div className="bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
+        {/* Navigation Tabs */}
+        <div className="border-b border-gray-200 bg-gray-50/50">
           <nav className="flex overflow-x-auto" aria-label="Tabs">
             <button
               onClick={() => setActiveTab('for_collection')}
-              className={`whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-4 px-6 border-b-2 font-semibold text-sm transition-colors flex items-center gap-2 ${
                 activeTab === 'for_collection'
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              For Collection
+              <span>For Collection</span>
+              {pendingBillings.length > 0 && (
+                <span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-bold">
+                  {pendingBillings.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('collected')}
-              className={`whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-4 px-6 border-b-2 font-semibold text-sm transition-colors flex items-center gap-2 ${
                 activeTab === 'collected'
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Collected / Paid
+              <span>Collected / Paid</span>
+              {filteredCollections.length > 0 && (
+                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full font-bold">
+                  {filteredCollections.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('advanced')}
-              className={`whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-4 px-6 border-b-2 font-semibold text-sm transition-colors ${
                 activeTab === 'advanced'
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -55,94 +212,251 @@ export default function CollectionsPage() {
           </nav>
         </div>
 
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50/50">
+        {/* Search Header */}
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-white">
           <div className="relative max-w-sm w-full">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-4 w-4 text-gray-400" />
             </div>
             <input
               type="text"
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              placeholder="Search by unit or tenant..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Search by tenant, unit, or invoice..."
             />
           </div>
-          <button className="text-gray-600 hover:text-gray-900 flex items-center text-sm font-medium">
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </button>
         </div>
 
+        {/* Content Tabs */}
         <div className="overflow-x-auto">
-          {activeTab === 'for_collection' && (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit / Tenant</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount Due</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                <tr>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">Unit 204</div>
-                    <div className="text-sm text-gray-500">John Doe</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Monthly Rent</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">₱ 15,500</div>
-                    <div className="text-xs text-red-500">+₱500 Late Fee</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Aug 01, 2024</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                      <AlertCircle className="w-3 h-3 mr-1" />
-                      Overdue
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button className="text-blue-600 hover:text-blue-900 bg-blue-50 px-3 py-1 rounded-md">Receive Cash</button>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">Unit 102</div>
-                    <div className="text-sm text-gray-500">Jane Smith</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Utilities</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">₱ 2,100</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Aug 15, 2024</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      <Clock className="w-3 h-3 mr-1" />
-                      Pending
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button className="text-blue-600 hover:text-blue-900 bg-blue-50 px-3 py-1 rounded-md">Receive Cash</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-          
-          {activeTab === 'collected' && (
-             <div className="p-8 text-center text-gray-500">
-               <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-               <p>No recently collected payments found.</p>
-             </div>
-          )}
-
-          {activeTab === 'advanced' && (
-             <div className="p-8 text-center text-gray-500">
-               <p>No advanced payments active.</p>
-             </div>
+          {loading ? (
+            <div className="p-16 text-center text-gray-500 flex flex-col items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+              <p className="text-sm">Loading collection records...</p>
+            </div>
+          ) : activeTab === 'for_collection' ? (
+            pendingBillings.length > 0 ? (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Unit / Tenant</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Billing Type</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Due</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Due Date</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {pendingBillings.map((b) => {
+                    const balance = b.amount - (b.amount_paid || 0);
+                    return (
+                      <tr key={b.id} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-bold text-gray-900">{b.unit_number || `Unit #${b.unit_id}`}</div>
+                          <div className="text-xs text-gray-500">{b.tenant_name} • {b.building_name}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {b.billing_type_name || 'General Bill'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-extrabold text-gray-900">₱ {balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                          {b.late_fee_applied > 0 && (
+                            <div className="text-[11px] font-semibold text-red-500">+₱{b.late_fee_applied.toFixed(2)} Late Fee</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
+                          {b.due_date}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            b.status === 'overdue' 
+                              ? 'bg-red-100 text-red-800' 
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {b.status === 'overdue' ? <AlertCircle className="w-3 h-3 mr-1" /> : <Clock className="w-3 h-3 mr-1" />}
+                            {b.status === 'overdue' ? 'Overdue' : 'Pending Payment'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button 
+                            onClick={() => handleOpenPaymentModal(b)}
+                            className="text-blue-600 hover:text-blue-800 font-semibold bg-blue-50 hover:bg-blue-100 px-3.5 py-1.5 rounded-xl transition-colors inline-flex items-center gap-1 text-xs"
+                          >
+                            <DollarSign className="w-3.5 h-3.5" />
+                            <span>Collect Payment</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="p-16 text-center text-gray-500">
+                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-gray-800">All Collections Caught Up</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                  There are currently no posted or overdue invoices waiting for collection.
+                </p>
+              </div>
+            )
+          ) : activeTab === 'collected' ? (
+            filteredCollections.length > 0 ? (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tenant / Unit</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Payment Method</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Collected</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredCollections.map((c) => (
+                    <tr key={c.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                        {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-bold text-gray-900">{c.tenant_name || 'Tenant'}</div>
+                        <div className="text-xs text-gray-500">{c.unit_number} • {c.building_name}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 capitalize">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800">
+                          {c.payment_method}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-emerald-700">
+                        ₱ {Number(c.amount_paid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Completed
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="p-16 text-center text-gray-500">
+                <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-gray-800">No Collected Payments Yet</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                  Payments collected via Cash, GCash, or QR will appear in this history log once received.
+                </p>
+              </div>
+            )
+          ) : (
+            <div className="p-16 text-center text-gray-500">
+              <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-gray-800">No Advance Payments On Record</h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                Prepaid rental deposits and advance security payments will be listed here.
+              </p>
+            </div>
           )}
         </div>
       </div>
+
+      {/* Record Payment Modal */}
+      {paymentModalBilling && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-gray-200">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Record Payment</h3>
+                <p className="text-xs text-gray-500">Billing Invoice #{paymentModalBilling.id}</p>
+              </div>
+              <button 
+                onClick={() => setPaymentModalBilling(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRecordPayment} className="p-6 space-y-4">
+              {paymentError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{paymentError}</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Tenant:</span>
+                  <span className="font-bold text-gray-900">{paymentModalBilling.tenant_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Unit:</span>
+                  <span className="font-bold text-gray-900">{paymentModalBilling.unit_number} ({paymentModalBilling.building_name})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Total Invoice:</span>
+                  <span className="font-bold text-gray-900">₱ {paymentModalBilling.amount.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                  Amount to Collect (₱) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-400 text-sm font-semibold">₱</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                  Payment Method *
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="gcash">GCash</option>
+                  <option value="qr">Bank / QR Ph</option>
+                </select>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalBilling(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={paymentSubmitting}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {paymentSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Confirm Payment</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

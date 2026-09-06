@@ -41,6 +41,7 @@ export async function GET(
       extra_charges_json: billing.extra_charges_json,
       amount: Number(billing.amount),
       due_date: billing.due_date,
+      billing_cycle: billing.billing_cycle || billing.BillingType?.frequency || 'monthly',
       status: billing.status || 'posted',
       created_at: billing.created_at,
       platform_name: settings.platform_name,

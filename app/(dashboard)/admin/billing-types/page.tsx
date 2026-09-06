@@ -18,10 +18,11 @@ import {
   CreditCard,
   Calendar,
   Layers,
-  ArrowLeft
+  ArrowLeft,
+  Repeat
 } from 'lucide-react';
 import Link from 'next/link';
-import { BillingTypeRecord } from '@/lib/billingsStore';
+import { BillingTypeRecord, BillingFrequency } from '@/lib/billingsStore';
 
 export default function BillingTypesPage() {
   const [billingTypes, setBillingTypes] = useState<BillingTypeRecord[]>([]);
@@ -41,6 +42,7 @@ export default function BillingTypesPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    frequency: 'monthly' as BillingFrequency,
     due_date_type: 'days_after_posting' as 'fixed_day' | 'days_after_posting',
     due_date_value: '15',
     late_fee_type: 'none' as 'none' | 'fixed' | 'percentage',
@@ -99,6 +101,7 @@ export default function BillingTypesPage() {
     setFormData({
       name: '',
       description: '',
+      frequency: 'monthly',
       due_date_type: 'days_after_posting',
       due_date_value: '15',
       late_fee_type: 'fixed',
@@ -125,6 +128,7 @@ export default function BillingTypesPage() {
     setFormData({
       name: bt.name,
       description: bt.description || '',
+      frequency: (bt.frequency as BillingFrequency) || 'monthly',
       due_date_type: bt.due_date_type || 'days_after_posting',
       due_date_value: (bt.due_date_value || 15).toString(),
       late_fee_type: bt.late_fee_type || 'none',
@@ -160,6 +164,7 @@ export default function BillingTypesPage() {
       const payload = {
         name: formData.name.trim(),
         description: formData.description.trim(),
+        frequency: formData.frequency,
         due_date_type: formData.due_date_type,
         due_date_value: Number(formData.due_date_value || 15),
         late_fee_type: formData.late_fee_type,
@@ -321,6 +326,9 @@ export default function BillingTypesPage() {
                     Category Name & Details
                   </th>
                   <th scope="col" className="px-6 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Billing Cycle
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Due Date Rule
                   </th>
                   <th scope="col" className="px-6 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -344,6 +352,31 @@ export default function BillingTypesPage() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-bold text-gray-900">{type.name}</div>
                       <div className="text-xs text-gray-500 max-w-xs truncate">{type.description || 'No description provided'}</div>
+                    </td>
+
+                    {/* Billing Cycle / Frequency */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {type.frequency === 'quarterly' ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 shadow-2xs">
+                          <Repeat className="w-3.5 h-3.5 text-amber-600" />
+                          Quarterly (3 Mos)
+                        </span>
+                      ) : type.frequency === 'annually' ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-800 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200 shadow-2xs">
+                          <Repeat className="w-3.5 h-3.5 text-purple-600" />
+                          Annually (12 Mos)
+                        </span>
+                      ) : type.frequency === 'one_time' ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full border border-gray-200 shadow-2xs">
+                          <Clock className="w-3.5 h-3.5 text-gray-500" />
+                          One-time
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 shadow-2xs">
+                          <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                          Monthly
+                        </span>
+                      )}
                     </td>
 
                     {/* Due Date Rule */}
@@ -492,6 +525,33 @@ export default function BillingTypesPage() {
                   placeholder="Brief description of this billing category..."
                   className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
+              </div>
+
+              {/* Billing Cycle / Frequency */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Billing Cycle / Frequency *
+                  </label>
+                  <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                    Reflects in Billing Module
+                  </span>
+                </div>
+                <div className="relative">
+                  <select
+                    value={formData.frequency}
+                    onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value as any }))}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium cursor-pointer"
+                  >
+                    <option value="monthly">Monthly (Charged every month / standard rent cycle)</option>
+                    <option value="quarterly">Quarterly (Charged every 3 months / quarter)</option>
+                    <option value="annually">Annually (Charged once per year)</option>
+                    <option value="one_time">One-time (Single one-off billing charge / deposit / fee)</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  When creating a bill for a tenant with this billing type, this cycle will automatically reflect in the billings module.
+                </p>
               </div>
 
               {/* Due Date Configuration */}

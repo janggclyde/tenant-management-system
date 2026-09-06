@@ -14,28 +14,18 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const growthData = [
-  { name: 'Jan', total: 12 },
-  { name: 'Feb', total: 18 },
-  { name: 'Mar', total: 24 },
-  { name: 'Apr', total: 32 },
-  { name: 'May', total: 45 },
-  { name: 'Jun', total: 60 },
-  { name: 'Jul', total: 75 },
-  { name: 'Aug', total: 92 },
-];
-
 export default function SuperAdminDashboard() {
   const [stats, setStats] = useState({
-    totalCustomers: 5,
-    activeCustomers: 4,
-    suspendedCustomers: 1,
-    totalBuildings: 10,
-    totalUnits: 55,
-    totalTenants: 41,
-    totalMRR: 17991,
-    tierDistribution: { Starter: 2, Pro: 2, Enterprise: 1 }
+    totalCustomers: 0,
+    activeCustomers: 0,
+    suspendedCustomers: 0,
+    totalBuildings: 0,
+    totalUnits: 0,
+    totalTenants: 0,
+    totalMRR: 0,
+    tierDistribution: { Starter: 0, Pro: 0, Enterprise: 0 }
   });
+  const [growthData, setGrowthData] = useState<{ name: string; total: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,8 +34,35 @@ export default function SuperAdminDashboard() {
       try {
         const res = await fetch('/api/super-admin/customers');
         const data = await res.json();
-        if (isMounted && data.success && data.stats) {
-          setStats(data.stats);
+        if (isMounted && data.success) {
+          if (data.stats) {
+            setStats(data.stats);
+          }
+
+          // Dynamically compute subscriber growth trajectory over the past 6 months
+          if (data.customers && data.customers.length > 0) {
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const now = new Date();
+            const pastMonths: { name: string; endDate: Date; total: number }[] = [];
+
+            for (let i = 5; i >= 0; i--) {
+              const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+              pastMonths.push({
+                name: monthNames[d.getMonth()],
+                endDate: d,
+                total: 0
+              });
+            }
+
+            pastMonths.forEach(m => {
+              m.total = data.customers.filter((c: any) => new Date(c.created_at) <= m.endDate).length;
+            });
+
+            const hasAnyCustomers = pastMonths.some(m => m.total > 0);
+            setGrowthData(hasAnyCustomers ? pastMonths.map(m => ({ name: m.name, total: m.total })) : []);
+          } else {
+            setGrowthData([]);
+          }
         }
       } catch (err) {
         // Fallback
@@ -77,22 +94,20 @@ export default function SuperAdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Active Subscribers" 
-          value={stats.activeCustomers.toString()} 
+          value={loading ? "—" : stats.activeCustomers.toString()} 
           icon={Users} 
-          trend="+15%" 
           subtitle={`${stats.totalCustomers} total registered property managers`}
         />
         <StatCard 
           title="Total Properties" 
-          value={stats.totalBuildings.toString()} 
+          value={loading ? "—" : stats.totalBuildings.toString()} 
           icon={Building2} 
           subtitle={`${stats.totalUnits} rental units across portfolio`}
         />
         <StatCard 
           title="Monthly Recurring Rev." 
-          value={`₱ ${stats.totalMRR.toLocaleString()}`} 
+          value={loading ? "—" : `₱ ${stats.totalMRR.toLocaleString()}`} 
           icon={CreditCard} 
-          trend="+12%" 
           subtitle="From active SaaS plan subscriptions"
         />
         <StatCard 
@@ -111,30 +126,51 @@ export default function SuperAdminDashboard() {
               <h2 className="text-lg font-bold text-gray-900">Customer & Subscriber Growth</h2>
               <p className="text-xs text-gray-500 mt-0.5">Monthly platform subscriber onboarding trajectory</p>
             </div>
-            <span className="inline-flex items-center text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-              <TrendingUp className="w-3.5 h-3.5 mr-1" />
-              +28% YoY
-            </span>
+            {growthData.length > 0 && stats.activeCustomers > 0 && (
+              <span className="inline-flex items-center text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                <TrendingUp className="w-3.5 h-3.5 mr-1" />
+                {stats.activeCustomers} Active
+              </span>
+            )}
           </div>
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={growthData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#111827', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }}
-                  itemStyle={{ color: '#60a5fa' }}
-                />
-                <Area type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={2.5} fillOpacity={1} fill="url(#colorTotal)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {growthData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={growthData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                  <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#111827', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }}
+                    itemStyle={{ color: '#60a5fa' }}
+                  />
+                  <Area type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={2.5} fillOpacity={1} fill="url(#colorTotal)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 bg-gray-50/60 rounded-xl border border-dashed border-gray-200">
+                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-3">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-800">No Subscriber Growth Data Yet</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                  Platform subscriber trends will appear here automatically once property managers subscribe to your tiers.
+                </p>
+                <Link
+                  href="/super-admin/customers"
+                  className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Onboard First Customer</span>
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 

@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       due_date,
       status,
       late_fee_applied,
+      billing_cycle,
     } = body;
 
     // Validation
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
       tenant_id: Number(tenant_id),
       unit_id: Number(unit_id || 101),
       base_amount: baseAmt,
+      billing_cycle: billing_cycle ? String(billing_cycle) : undefined,
       status: "draft",
       custom_due_date: due_date ? String(due_date) : undefined,
       custom_late_fee: late_fee_applied ? Number(late_fee_applied) : undefined,

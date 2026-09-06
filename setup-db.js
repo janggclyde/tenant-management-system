@@ -69,6 +69,10 @@ export const BillingType = sequelize.define("BillingType", {
   admin_id: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   name: { type: DataTypes.STRING, allowNull: false },
   description: { type: DataTypes.STRING, allowNull: true },
+  frequency: {
+    type: DataTypes.ENUM("monthly", "quarterly", "annually", "one_time"),
+    defaultValue: "monthly",
+  },
   due_date_type: {
     type: DataTypes.ENUM("fixed_day", "days_after_posting"),
     defaultValue: "days_after_posting",
@@ -99,6 +103,11 @@ export const Billing = sequelize.define("Billing", {
   billing_type_id: { type: DataTypes.INTEGER, allowNull: false },
   tenant_id: { type: DataTypes.INTEGER, allowNull: false },
   unit_id: { type: DataTypes.INTEGER, allowNull: false },
+  billing_cycle: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: "monthly",
+  },
   base_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   tax_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
   transfer_fee: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },

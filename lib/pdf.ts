@@ -35,6 +35,7 @@ export interface BillPDFData {
   extra_charges_json?: { name: string; amount: number }[];
   amount: number;
   due_date: string;
+  billing_cycle?: string;
   status: string;
   created_at?: string;
   platform_name?: string;
@@ -102,6 +103,23 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
           width: 225,
         });
 
+      let cycleLabel = "Monthly";
+      const rawCycle = billData.billing_cycle ? String(billData.billing_cycle).trim() : "";
+      if (rawCycle) {
+        const lower = rawCycle.toLowerCase();
+        if (lower === "quarterly") {
+          cycleLabel = "Quarterly (3 Mos)";
+        } else if (lower === "annually" || lower === "annual") {
+          cycleLabel = "Annually (12 Mos)";
+        } else if (lower === "one_time" || lower === "one-time") {
+          cycleLabel = "One-time";
+        } else if (lower === "monthly") {
+          cycleLabel = "Monthly";
+        } else {
+          cycleLabel = rawCycle;
+        }
+      }
+
       doc
         .fillColor(secondaryColor)
         .font("Times-Roman")
@@ -123,18 +141,24 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
           320,
           112,
           { align: "right", width: 225 },
+        )
+        .text(
+          `Billing Cycle: ${cycleLabel}`,
+          320,
+          124,
+          { align: "right", width: 225 },
         );
 
       // Horizontal Divider
       doc
         .strokeColor(borderColor)
         .lineWidth(1)
-        .moveTo(50, 130)
-        .lineTo(545, 130)
+        .moveTo(50, 138)
+        .lineTo(545, 138)
         .stroke();
 
       // --- BILL TO / PROPERTY DETAILS BOXES ---
-      const boxY = 145;
+      const boxY = 148;
       const boxHeight = 85;
       const boxWidth = 235;
 
@@ -229,7 +253,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         .font("Times-Roman")
         .fontSize(9)
         .text(
-          `Standard lease billing for ${billData.unit_number}`,
+          `Lease charge (${cycleLabel}) for ${billData.unit_number}`,
           250,
           tableY + 7,
         );

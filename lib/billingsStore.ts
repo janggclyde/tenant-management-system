@@ -1,10 +1,13 @@
 import { Billing, BillingType, Tenant, Unit, Building, User, Collection, syncDatabase } from '@/db/models';
 
+export type BillingFrequency = 'monthly' | 'quarterly' | 'annually' | 'one_time';
+
 export interface BillingTypeRecord {
   id: number;
   admin_id: number;
   name: string;
   description?: string;
+  frequency?: BillingFrequency;
   due_date_type: 'fixed_day' | 'days_after_posting';
   due_date_value: number; // e.g. 5 for 5th day of month, OR 15 for 15 days after posting
   late_fee_type: 'none' | 'fixed' | 'percentage';
@@ -41,6 +44,7 @@ export interface BillingRecord {
   billing_type_id: number;
   tenant_id: number;
   unit_id: number;
+  billing_cycle?: BillingFrequency | string;
   base_amount: number;
   tax_percentage?: number;
   tax_amount: number;
@@ -87,10 +91,50 @@ export let mockBillingTypes: BillingTypeRecord[] = [];
 export let mockBillings: BillingRecord[] = [];
 export const mockTenantsUnits: any[] = [];
 
+export function extractBillingFrequency(cycle?: string, defaultFrequency: BillingFrequency = 'monthly'): BillingFrequency {
+  if (!cycle) return defaultFrequency;
+  const c = cycle.toLowerCase().trim();
+  if (c === 'quarterly' || c.startsWith('q1') || c.startsWith('q2') || c.startsWith('q3') || c.startsWith('q4') || c.includes('quarter')) {
+    return 'quarterly';
+  }
+  if (c === 'annually' || c === 'annual' || /^\d{4}$/.test(c) || c.startsWith('year')) {
+    return 'annually';
+  }
+  if (c === 'one_time' || c === 'one-time' || c === 'onetime' || c.includes('one-time')) {
+    return 'one_time';
+  }
+  if (c === 'monthly') {
+    return 'monthly';
+  }
+  const monthNames = [
+    'january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'
+  ];
+  if (monthNames.some(m => c.includes(m))) {
+    return 'monthly';
+  }
+  return defaultFrequency;
+}
+
+export function formatBillingCycle(cycle?: string): string {
+  if (!cycle) return 'Monthly';
+  const trimmed = cycle.trim();
+  switch (trimmed.toLowerCase()) {
+    case 'quarterly': return 'Quarterly';
+    case 'annually':
+    case 'annual': return 'Annually';
+    case 'one_time':
+    case 'one-time': return 'One-time';
+    case 'monthly': return 'Monthly';
+    default: return trimmed;
+  }
+}
+
 // SERVER-SIDE FINANCIAL & METER READING CALCULATIONS ENGINE
 export async function calculateServerSideBilling(data: {
   billing_type_id: number;
   base_amount: number;
+  billing_cycle?: BillingFrequency | string;
   posting_date?: string;
   custom_due_date?: string;
   custom_late_fee?: number;
@@ -104,7 +148,11 @@ export async function calculateServerSideBilling(data: {
   const types = await getBillingTypesList(data.admin_id);
   const typeConfig = types.find(t => t.id === Number(data.billing_type_id)) || types[0];
 
+  const frequency: BillingFrequency = extractBillingFrequency(data.billing_cycle, typeConfig?.frequency || 'monthly');
+  const cycleMultiplier = frequency === 'quarterly' ? 3 : frequency === 'annually' ? 12 : 1;
+
   let rawBaseAmount = Number(data.base_amount || 0);
+  const cycleBaseAmount = rawBaseAmount * cycleMultiplier;
 
   // Compute Meter Submeter Readings
   const calculatedReadings: MeterReadingsData = {};
@@ -112,12 +160,12 @@ export async function calculateServerSideBilling(data: {
 
   if (data.meter_readings) {
     // Electricity
-    if (data.meter_readings.electricity && (data.meter_readings.electricity.current || data.meter_readings.electricity.previous)) {
+    if (data.meter_readings.electricity) {
       const prev = Number(data.meter_readings.electricity.previous || 0);
       const curr = Number(data.meter_readings.electricity.current || 0);
       const consumption = Math.max(0, curr - prev);
       const elecType = types.find(t => t.name.toLowerCase().includes('electric')) || typeConfig;
-      const rate = data.meter_readings.electricity.rate || typeConfig?.electricity_rate_per_unit || elecType?.rate_per_unit || 12.50;
+      const rate = Number(data.meter_readings.electricity.rate ?? typeConfig?.electricity_rate_per_unit ?? elecType?.rate_per_unit ?? 12.50);
       const amt = Math.round((consumption * rate) * 100) / 100;
 
       calculatedReadings.electricity = {
@@ -131,12 +179,12 @@ export async function calculateServerSideBilling(data: {
     }
 
     // Water
-    if (data.meter_readings.water && (data.meter_readings.water.current || data.meter_readings.water.previous)) {
+    if (data.meter_readings.water) {
       const prev = Number(data.meter_readings.water.previous || 0);
       const curr = Number(data.meter_readings.water.current || 0);
       const consumption = Math.max(0, curr - prev);
       const waterType = types.find(t => t.name.toLowerCase().includes('water')) || typeConfig;
-      const rate = data.meter_readings.water.rate || typeConfig?.water_rate_per_unit || waterType?.rate_per_unit || 45.00;
+      const rate = Number(data.meter_readings.water.rate ?? typeConfig?.water_rate_per_unit ?? waterType?.rate_per_unit ?? 45.00);
       const amt = Math.round((consumption * rate) * 100) / 100;
 
       calculatedReadings.water = {
@@ -161,8 +209,8 @@ export async function calculateServerSideBilling(data: {
     });
   }
 
-  // Effective Base Amount includes submeter charges if entered
-  const effectiveBaseAmount = rawBaseAmount + meterChargesTotal;
+  // Effective Base Amount includes cycle-adjusted base amount and submeter charges
+  const effectiveBaseAmount = cycleBaseAmount + meterChargesTotal;
 
   const taxPercentage = Number(typeConfig?.tax_percentage || 0);
   const taxAmount = Math.round((effectiveBaseAmount * (taxPercentage / 100)) * 100) / 100;
@@ -198,8 +246,12 @@ export async function calculateServerSideBilling(data: {
   return {
     billing_type_id: typeConfig?.id || data.billing_type_id,
     billing_type_name: typeConfig?.name || 'General Bill',
+    billing_cycle: data.billing_cycle || frequency,
+    cycle_multiplier: cycleMultiplier,
+    raw_base_amount: rawBaseAmount,
+    cycle_base_amount: cycleBaseAmount,
     type_config: typeConfig,
-    base_amount: rawBaseAmount,
+    base_amount: cycleBaseAmount,
     meter_charges_total: meterChargesTotal,
     extra_charges_total: extraChargesTotal,
     effective_base_amount: effectiveBaseAmount,
@@ -235,6 +287,7 @@ export async function getBillingTypesList(adminId?: number): Promise<BillingType
           admin_id: item.admin_id,
           name: item.name,
           description: item.description || '',
+          frequency: (item.frequency as BillingFrequency) || 'monthly',
           due_date_type: item.due_date_type || 'days_after_posting',
           due_date_value: Number(item.due_date_value || 15),
           late_fee_type: item.late_fee_type || 'fixed',
@@ -253,8 +306,41 @@ export async function getBillingTypesList(adminId?: number): Promise<BillingType
         };
       });
     }
-  } catch (err) {
-    // DB Fallback
+  } catch (err: any) {
+    // Database schema fallback: If model column query fails, fetch directly from BillingTypes table
+    try {
+      const seq = (BillingType as any).sequelize;
+      if (seq) {
+        const [rawRows]: any = await seq.query('SELECT * FROM `BillingTypes` ORDER BY id ASC');
+        if (rawRows && rawRows.length > 0) {
+          const filtered = adminId ? rawRows.filter((r: any) => r.admin_id === adminId) : rawRows;
+          return filtered.map((item: any) => ({
+            id: item.id,
+            admin_id: item.admin_id,
+            name: item.name,
+            description: item.description || '',
+            frequency: (item.frequency as BillingFrequency) || 'monthly',
+            due_date_type: item.due_date_type || 'days_after_posting',
+            due_date_value: Number(item.due_date_value || 15),
+            late_fee_type: item.late_fee_type || 'fixed',
+            late_fee_amount: Number(item.late_fee_amount || 0),
+            grace_period_days: Number(item.grace_period_days || 0),
+            tax_percentage: Number(item.tax_percentage || 0),
+            transfer_fee: Number(item.transfer_fee || 0),
+            has_meter_reading: Boolean(item.has_meter_reading),
+            has_electricity: Boolean(item.has_electricity ?? (item.has_meter_reading && (item.electricity_rate_per_unit || item.name?.toLowerCase().includes('electric')))),
+            has_water: Boolean(item.has_water ?? (item.has_meter_reading && (item.water_rate_per_unit || item.name?.toLowerCase().includes('water')))),
+            rate_per_unit: Number(item.rate_per_unit || 0),
+            electricity_rate_per_unit: Number(item.electricity_rate_per_unit || 12.50),
+            water_rate_per_unit: Number(item.water_rate_per_unit || 45.00),
+            allow_partial: Boolean(item.allow_partial),
+            auto_generate: Boolean(item.auto_generate)
+          }));
+        }
+      }
+    } catch (rawErr) {
+      console.warn('Raw query fallback for BillingTypes failed:', rawErr);
+    }
   }
 
   return mockBillingTypes.filter(t => !adminId || t.admin_id === adminId);
@@ -262,11 +348,13 @@ export async function getBillingTypesList(adminId?: number): Promise<BillingType
 
 export async function createBillingType(data: Partial<BillingTypeRecord> & { admin_id?: number }) {
   const admin_id = data.admin_id || 2;
+  const frequency = (data.frequency as BillingFrequency) || 'monthly';
   try {
     const created: any = await BillingType.create({
       admin_id,
       name: data.name,
       description: data.description || '',
+      frequency,
       due_date_type: data.due_date_type || 'days_after_posting',
       due_date_value: Number(data.due_date_value || 15),
       late_fee_type: data.late_fee_type || 'none',
@@ -292,6 +380,7 @@ export async function createBillingType(data: Partial<BillingTypeRecord> & { adm
       admin_id,
       name: data.name || 'New Category',
       description: data.description || '',
+      frequency,
       due_date_type: data.due_date_type || 'days_after_posting',
       due_date_value: Number(data.due_date_value || 15),
       late_fee_type: data.late_fee_type || 'none',
@@ -399,6 +488,7 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
           billing_type_id: item.billing_type_id,
           tenant_id: item.tenant_id,
           unit_id: item.unit_id,
+          billing_cycle: item.billing_cycle || item.BillingType?.frequency || 'monthly',
           base_amount: Number(item.base_amount || item.amount),
           tax_percentage: Number(item.BillingType?.tax_percentage || 0),
           tax_amount: Number(item.tax_amount || 0),
@@ -478,6 +568,7 @@ export async function createBilling(data: {
   tenant_id: number;
   unit_id: number;
   base_amount: number;
+  billing_cycle?: string;
   status: 'draft' | 'posted';
   custom_due_date?: string;
   custom_late_fee?: number;
@@ -490,6 +581,7 @@ export async function createBilling(data: {
   const calculated = await calculateServerSideBilling({
     billing_type_id: data.billing_type_id,
     base_amount: data.base_amount,
+    billing_cycle: data.billing_cycle,
     custom_due_date: data.custom_due_date,
     custom_late_fee: data.custom_late_fee,
     admin_id,
@@ -503,6 +595,7 @@ export async function createBilling(data: {
       billing_type_id: data.billing_type_id,
       tenant_id: data.tenant_id,
       unit_id: data.unit_id,
+      billing_cycle: data.billing_cycle || calculated.billing_cycle || 'monthly',
       base_amount: calculated.effective_base_amount,
       tax_amount: calculated.tax_amount,
       transfer_fee: calculated.transfer_fee,
@@ -526,6 +619,7 @@ export async function createBilling(data: {
       billing_type_id: Number(data.billing_type_id),
       tenant_id: Number(data.tenant_id),
       unit_id: Number(data.unit_id || tUnit.unit_id),
+      billing_cycle: data.billing_cycle || calculated.billing_cycle || bType?.frequency || 'monthly',
       base_amount: calculated.effective_base_amount,
       tax_percentage: calculated.tax_percentage,
       tax_amount: calculated.tax_amount,
@@ -550,14 +644,48 @@ export async function createBilling(data: {
   }
 }
 
-export async function updateBilling(id: number, data: Partial<BillingRecord>, adminId?: number) {
+export async function updateBilling(id: number, data: Partial<BillingRecord> & { meter_readings?: any; extra_charges?: any[] }, adminId?: number) {
+  const patchData: any = { ...data };
+  if (data.meter_readings && !patchData.meter_readings_json) {
+    patchData.meter_readings_json = data.meter_readings;
+  }
+  if (data.extra_charges && !patchData.extra_charges_json) {
+    patchData.extra_charges_json = data.extra_charges;
+  }
+
   try {
     const whereClause: any = { id };
     if (adminId) whereClause.admin_id = adminId;
 
     const item: any = await Billing.findOne({ where: whereClause });
     if (item) {
-      await item.update(data);
+      if (data.meter_readings !== undefined || data.extra_charges !== undefined || data.base_amount !== undefined) {
+        const typeId = Number(data.billing_type_id || item.billing_type_id);
+        const baseAmt = Number(data.base_amount !== undefined ? data.base_amount : item.base_amount);
+        const cycle = data.billing_cycle || item.billing_cycle || 'monthly';
+        const mReadings = data.meter_readings !== undefined ? data.meter_readings : item.meter_readings_json;
+        const eCharges = data.extra_charges !== undefined ? data.extra_charges : item.extra_charges_json;
+
+        const calculated = await calculateServerSideBilling({
+          billing_type_id: typeId,
+          base_amount: baseAmt,
+          billing_cycle: cycle,
+          admin_id: adminId || item.admin_id,
+          meter_readings: mReadings,
+          extra_charges: eCharges,
+          custom_due_date: data.due_date || item.due_date,
+          custom_late_fee: data.late_fee_applied !== undefined ? Number(data.late_fee_applied) : Number(item.late_fee_applied || 0)
+        });
+
+        patchData.base_amount = calculated.effective_base_amount;
+        patchData.amount = calculated.total_amount;
+        patchData.meter_readings_json = calculated.meter_readings;
+        patchData.extra_charges_json = calculated.extra_charges;
+        patchData.tax_amount = calculated.tax_amount;
+        patchData.transfer_fee = calculated.transfer_fee;
+      }
+
+      await item.update(patchData);
       return item.get({ plain: true });
     }
   } catch (err) {
@@ -569,7 +697,7 @@ export async function updateBilling(id: number, data: Partial<BillingRecord>, ad
     const existing = mockBillings[idx];
     mockBillings[idx] = {
       ...existing,
-      ...data
+      ...patchData
     };
     return mockBillings[idx];
   }
@@ -625,6 +753,7 @@ export async function getBillingById(id: number, adminId?: number) {
 
       return {
         ...item,
+        billing_cycle: item.billing_cycle || item.BillingType?.frequency || 'monthly',
         base_amount: Number(item.base_amount || item.amount),
         tax_percentage: Number(item.BillingType?.tax_percentage || 0),
         tax_amount: Number(item.tax_amount || 0),

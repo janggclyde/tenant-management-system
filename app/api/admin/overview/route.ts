@@ -153,16 +153,20 @@ export async function GET(request: NextRequest) {
         .reduce((sum, b) => sum + (b.amount_paid || b.amount), 0);
       overdueCount = billings.filter(b => b.status === 'overdue').length;
 
-      // Mock revenue data (fallback)
-      const revenueData = [
-        { name: 'Jan', total: Math.round(collectedAmount * 0.75) },
-        { name: 'Feb', total: Math.round(collectedAmount * 0.82) },
-        { name: 'Mar', total: Math.round(collectedAmount * 0.90) },
-        { name: 'Apr', total: Math.round(collectedAmount * 0.88) },
-        { name: 'May', total: Math.round(collectedAmount * 0.95) },
-        { name: 'Jun', total: Math.round(collectedAmount * 0.98) },
-        { name: 'Jul', total: collectedAmount > 0 ? collectedAmount : 15500 },
-      ];
+      // Compute actual revenue per month from paid billings (fallback)
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthlyRevenue = new Array(12).fill(0);
+      const currentYear = new Date().getFullYear();
+      billings.filter(b => b.status === 'paid').forEach((b: any) => {
+        const d = b.created_at ? new Date(b.created_at) : new Date();
+        if (d.getFullYear() === currentYear) {
+          monthlyRevenue[d.getMonth()] += Number(b.amount_paid || b.amount || 0);
+        }
+      });
+      const revenueData = monthNames.map((name, idx) => ({
+        name,
+        total: monthlyRevenue[idx]
+      }));
 
       // Build dynamic recent activities from billings scoped to admin
       const allActivities: Array<{ id: string, title: string, description: string, time: Date }> = [];

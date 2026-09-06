@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const { 
       name, 
       description, 
+      frequency,
       due_date_type, 
       due_date_value, 
       late_fee_type, 
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       admin_id: adminId,
       name: name.trim(),
       description: description ? description.trim() : '',
+      frequency: frequency || 'monthly',
       due_date_type: due_date_type || 'days_after_posting',
       due_date_value: due_date_value ? Number(due_date_value) : 15,
       late_fee_type: late_fee_type || 'none',

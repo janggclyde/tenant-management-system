@@ -57,7 +57,7 @@ export default function PropertiesPage() {
     building_id: '',
     unit_number: '',
     status: 'vacant' as 'vacant' | 'occupied' | 'maintenance',
-    monthly_rent: '15000'
+    monthly_rent: ''
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -129,7 +129,7 @@ export default function PropertiesPage() {
       building_id: buildings[0] ? buildings[0].id.toString() : '',
       unit_number: '',
       status: 'vacant',
-      monthly_rent: '15000'
+      monthly_rent: ''
     });
     setFormError(null);
     setIsUnitModalOpen(true);

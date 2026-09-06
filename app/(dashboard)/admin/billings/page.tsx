@@ -32,11 +32,145 @@ import {
   Loader2,
   Info,
   ArrowRight,
-  Filter,
   Printer,
+  Repeat,
+  Filter,
 } from "lucide-react";
 import Link from "next/link";
-import { BillingRecord, BillingTypeRecord } from "@/lib/billingsStore";
+import { BillingRecord, BillingTypeRecord, BillingFrequency } from "@/lib/billingsStore";
+
+function formatBillingCycle(cycle?: string): string {
+  if (!cycle) return "Monthly";
+  const trimmed = cycle.trim();
+  switch (trimmed.toLowerCase()) {
+    case "quarterly": return "Quarterly";
+    case "annually":
+    case "annual": return "Annually";
+    case "one_time":
+    case "one-time": return "One-time";
+    case "monthly": return "Monthly";
+    default: return trimmed;
+  }
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+const QUARTER_OPTIONS = [
+  { value: "Q1", label: "Q1 (Jan – Mar)" },
+  { value: "Q2", label: "Q2 (Apr – Jun)" },
+  { value: "Q3", label: "Q3 (Jul – Sep)" },
+  { value: "Q4", label: "Q4 (Oct – Dec)" },
+];
+
+function getCycleMultiplier(cycle?: string): number {
+  if (!cycle) return 1;
+  const c = cycle.toLowerCase().trim();
+  if (c === "quarterly" || c.startsWith("q1") || c.startsWith("q2") || c.startsWith("q3") || c.startsWith("q4") || c.includes("quarter")) return 3;
+  if (c === "annually" || c === "annual" || /^\d{4}$/.test(c) || c.startsWith("year")) return 12;
+  return 1;
+}
+
+function computeCycleValue(
+  freq: BillingFrequency,
+  month: string,
+  quarter: string,
+  year: string
+): string {
+  switch (freq) {
+    case "monthly":
+      return `${month} ${year}`;
+    case "quarterly":
+      return `${quarter} ${year}`;
+    case "annually":
+      return `${year}`;
+    case "one_time":
+      return "One-time";
+    default:
+      return `${month} ${year}`;
+  }
+}
+
+function parseCycleState(cycleStr?: string, defaultFrequency: BillingFrequency = "monthly") {
+  const now = new Date();
+  const currentYear = now.getFullYear().toString();
+  const currentMonthIndex = now.getMonth();
+  const defaultMonth = MONTH_NAMES[currentMonthIndex] || "January";
+  const defaultQuarter = `Q${Math.floor(currentMonthIndex / 3) + 1}`;
+
+  if (!cycleStr) {
+    return {
+      frequency: defaultFrequency,
+      month: defaultMonth,
+      quarter: defaultQuarter,
+      year: currentYear,
+    };
+  }
+
+  const str = cycleStr.trim();
+  const lower = str.toLowerCase();
+
+  if (lower === "one_time" || lower === "one-time" || lower === "onetime" || lower === "one time") {
+    return { frequency: "one_time" as BillingFrequency, month: defaultMonth, quarter: defaultQuarter, year: currentYear };
+  }
+
+  if (lower === "quarterly") {
+    return { frequency: "quarterly" as BillingFrequency, month: defaultMonth, quarter: defaultQuarter, year: currentYear };
+  }
+
+  if (lower === "annually" || lower === "annual") {
+    return { frequency: "annually" as BillingFrequency, month: defaultMonth, quarter: defaultQuarter, year: currentYear };
+  }
+
+  if (lower === "monthly") {
+    return { frequency: "monthly" as BillingFrequency, month: defaultMonth, quarter: defaultQuarter, year: currentYear };
+  }
+
+  // Check Quarter: e.g. "Q1 2026" or "Q3 2025"
+  const qMatch = str.match(/^(Q[1-4])\s+(\d{4})$/i);
+  if (qMatch) {
+    return {
+      frequency: "quarterly" as BillingFrequency,
+      quarter: qMatch[1].toUpperCase(),
+      year: qMatch[2],
+      month: defaultMonth,
+    };
+  }
+
+  // Check Annual: e.g. "2026" or "Year 2026"
+  const yrMatch = str.match(/^(?:Year\s+)?(\d{4})$/i);
+  if (yrMatch) {
+    return {
+      frequency: "annually" as BillingFrequency,
+      year: yrMatch[1],
+      quarter: defaultQuarter,
+      month: defaultMonth,
+    };
+  }
+
+  // Check Monthly: e.g. "September 2026" or "Sep 2026"
+  const mMatch = str.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (mMatch) {
+    const foundMonth = MONTH_NAMES.find((m) => m.toLowerCase().startsWith(mMatch[1].toLowerCase()));
+    if (foundMonth) {
+      return {
+        frequency: "monthly" as BillingFrequency,
+        month: foundMonth,
+        year: mMatch[2],
+        quarter: defaultQuarter,
+      };
+    }
+  }
+
+  return {
+    frequency: defaultFrequency,
+    month: defaultMonth,
+    quarter: defaultQuarter,
+    year: currentYear,
+  };
+}
 
 interface TenantUnitOption {
   tenant_id: number;
@@ -45,6 +179,7 @@ interface TenantUnitOption {
   unit_id: number;
   unit_number: string;
   building_name: string;
+  monthly_rent?: number;
 }
 
 // Extra Charge Types (for flexible additional charges, NOT electricity/water which are structured)
@@ -186,12 +321,30 @@ export default function BillingsPage() {
     tenant_id: "",
     unit_id: "",
     billing_type_id: "",
-    base_amount: "15000",
+    billing_cycle: "monthly",
+    base_amount: "0",
     due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0],
     late_fee_applied: "0",
   });
+
+  // Dedicated Cycle Selection State
+  const [cycleFrequency, setCycleFrequency] = useState<BillingFrequency>("monthly");
+  const [cycleMonth, setCycleMonth] = useState<string>(() => {
+    return MONTH_NAMES[new Date().getMonth()] || "January";
+  });
+  const [cycleQuarter, setCycleQuarter] = useState<string>(() => {
+    return `Q${Math.floor(new Date().getMonth() / 3) + 1}`;
+  });
+  const [cycleYear, setCycleYear] = useState<string>(() => {
+    return new Date().getFullYear().toString();
+  });
+
+  const availableYears = useMemo(() => {
+    const currentY = new Date().getFullYear();
+    return Array.from({ length: 7 }, (_, i) => (currentY - 1 + i).toString());
+  }, []);
 
   // STRUCTURED METER READINGS: Electricity & Water (driven by billing type config)
   const [meterReadings, setMeterReadings] = useState({
@@ -221,7 +374,11 @@ export default function BillingsPage() {
   // Live Server-Side Calculation State for Receipt Preview in Form
   const [serverCalculation, setServerCalculation] = useState<{
     base_amount: number;
+    raw_base_amount?: number;
+    cycle_base_amount?: number;
+    cycle_multiplier?: number;
     meter_charges_total?: number;
+    extra_charges_total?: number;
     effective_base_amount?: number;
     tax_percentage: number;
     tax_amount: number;
@@ -274,22 +431,47 @@ export default function BillingsPage() {
     fetchOptions();
   }, []);
 
+  // Local meter reading helpers
+  const localMeterElectricityCharge = useMemo(() => {
+    if (!meterReadings.electricity.enabled) return 0;
+    return computeMeterAmount(meterReadings.electricity.previous, meterReadings.electricity.current, meterReadings.electricity.rate);
+  }, [meterReadings.electricity]);
+
+  const localMeterWaterCharge = useMemo(() => {
+    if (!meterReadings.water.enabled) return 0;
+    return computeMeterAmount(meterReadings.water.previous, meterReadings.water.current, meterReadings.water.rate);
+  }, [meterReadings.water]);
+
+  const localMeterChargesTotal = useMemo(() => {
+    return localMeterElectricityCharge + localMeterWaterCharge;
+  }, [localMeterElectricityCharge, localMeterWaterCharge]);
+
   // Extra charge helpers
   const extraChargesTotal = useMemo(() =>
     extraCharges.reduce((sum, c) => sum + computeExtraChargeAmount(c), 0),
     [extraCharges]
   );
 
+  // Total billed amount: base unit rate + submeters + extra charges + fees associated with billing type
+  const computedTotalBilled = useMemo(() => {
+    if (serverCalculation) {
+      // serverCalculation.total_amount already includes cycle base amount, meter charges, taxes, and fees
+      return serverCalculation.total_amount + extraChargesTotal;
+    }
+    const mult = getCycleMultiplier(formData.billing_cycle);
+    return (Number(formData.base_amount || 0) * mult) + localMeterChargesTotal + extraChargesTotal;
+  }, [serverCalculation, formData.base_amount, formData.billing_cycle, localMeterChargesTotal, extraChargesTotal]);
+
   const updateExtraCharge = (id: string, patch: Partial<ExtraCharge>, chargesOverride?: ExtraCharge[]) => {
     const next = (chargesOverride || extraCharges).map((c) => c.id === id ? { ...c, ...patch } : c);
     setExtraCharges(next);
-    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date);
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, formData.billing_cycle);
   };
 
   const removeExtraCharge = (id: string) => {
     const next = extraCharges.filter((c) => c.id !== id);
     setExtraCharges(next);
-    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date);
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, formData.billing_cycle);
   };
 
   const addPresetCharge = (preset: typeof CHARGE_PRESETS[0]) => {
@@ -354,10 +536,12 @@ export default function BillingsPage() {
     baseAmtStr: string,
     customDueDate?: string,
     readingsOverride?: typeof meterReadings,
+    cycleOverride?: string,
   ) => {
     if (!typeId || !baseAmtStr || isNaN(Number(baseAmtStr))) return;
     setCalculating(true);
     const readings = readingsOverride ?? meterReadings;
+    const cycle = cycleOverride || formData.billing_cycle || undefined;
     try {
       // Build meter_readings payload from structured meterReadings state
       const readingsPayload: any = {};
@@ -382,6 +566,7 @@ export default function BillingsPage() {
         body: JSON.stringify({
           billing_type_id: Number(typeId),
           base_amount: Number(baseAmtStr),
+          billing_cycle: cycle,
           custom_due_date: customDueDate || undefined,
           meter_readings: Object.keys(readingsPayload).length > 0 ? readingsPayload : undefined,
         }),
@@ -497,12 +682,25 @@ export default function BillingsPage() {
       : "";
     const initialUnitId = defaultTenant ? defaultTenant.unit_id.toString() : "";
     const initialTypeId = defaultType ? defaultType.id.toString() : "";
-    const initialBaseAmt = "15000";
+    const initialBaseAmt = defaultTenant?.monthly_rent !== undefined ? defaultTenant.monthly_rent.toString() : "0";
+    
+    const now = new Date();
+    const currMonth = MONTH_NAMES[now.getMonth()] || "January";
+    const currQuarter = `Q${Math.floor(now.getMonth() / 3) + 1}`;
+    const currYear = now.getFullYear().toString();
+    const initialFreq = (defaultType?.frequency || "monthly") as BillingFrequency;
+    const initialCycle = computeCycleValue(initialFreq, currMonth, currQuarter, currYear);
+
+    setCycleFrequency(initialFreq);
+    setCycleMonth(currMonth);
+    setCycleQuarter(currQuarter);
+    setCycleYear(currYear);
 
     setFormData({
       tenant_id: initialTenantId,
       unit_id: initialUnitId,
       billing_type_id: initialTypeId,
+      billing_cycle: initialCycle,
       base_amount: initialBaseAmt,
       due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
         .toISOString()
@@ -540,19 +738,30 @@ export default function BillingsPage() {
     }
 
     if (initialTypeId) {
-      triggerCalculation(initialTypeId, initialBaseAmt, undefined, resetReadings);
+      triggerCalculation(initialTypeId, initialBaseAmt, undefined, resetReadings, initialCycle);
     }
   };
 
   // Open Edit Modal
   const handleOpenEditModal = (billing: BillingRecord) => {
     setEditingBilling(billing);
-    const baseAmt = (billing.base_amount || billing.amount || 15000).toString();
+    const baseAmt = (billing.base_amount || billing.amount || 0).toString();
+    const billingType = billingTypes.find((bt) => bt.id === billing.billing_type_id);
+    const defaultFreq = (billingType?.frequency || "monthly") as BillingFrequency;
+
+    const parsed = parseCycleState(billing.billing_cycle, defaultFreq);
+    setCycleFrequency(parsed.frequency);
+    setCycleMonth(parsed.month);
+    setCycleQuarter(parsed.quarter);
+    setCycleYear(parsed.year);
+
+    const currentCycle = billing.billing_cycle || computeCycleValue(parsed.frequency, parsed.month, parsed.quarter, parsed.year);
 
     setFormData({
       tenant_id: billing.tenant_id.toString(),
       unit_id: billing.unit_id.toString(),
       billing_type_id: billing.billing_type_id.toString(),
+      billing_cycle: currentCycle,
       base_amount: baseAmt,
       due_date: billing.due_date,
       late_fee_applied: (billing.late_fee_applied || 0).toString(),
@@ -563,9 +772,6 @@ export default function BillingsPage() {
     if (typeof parsedReadings === "string") {
       try { parsedReadings = JSON.parse(parsedReadings); } catch { parsedReadings = {}; }
     }
-
-    // Look up billing type for rates
-    const billingType = billingTypes.find((bt) => bt.id === billing.billing_type_id);
 
     const restoredReadings = {
       electricity: {
@@ -589,27 +795,38 @@ export default function BillingsPage() {
 
     setFormError(null);
     setIsFormModalOpen(true);
-    triggerCalculation(billing.billing_type_id.toString(), baseAmt, billing.due_date, restoredReadings);
+    triggerCalculation(billing.billing_type_id.toString(), baseAmt, billing.due_date, restoredReadings, currentCycle);
   };
 
-  // Handle Tenant Selection Change — auto-fills previous readings for electricity/water
+  // Handle Tenant Selection Change — auto-fills unit rate and previous readings for electricity/water
   const handleTenantChange = (tenantIdStr: string) => {
     const selectedTU = tenantsUnits.find((tu) => tu.tenant_id.toString() === tenantIdStr);
+    const unitRate = selectedTU?.monthly_rent !== undefined ? selectedTU.monthly_rent.toString() : "0";
     setFormData((prev) => ({
       ...prev,
       tenant_id: tenantIdStr,
       unit_id: selectedTU ? selectedTU.unit_id.toString() : prev.unit_id,
+      base_amount: unitRate,
     }));
+    triggerCalculation(formData.billing_type_id, unitRate, formData.due_date, undefined, formData.billing_cycle);
     // Auto-fill previous readings from tenant's last posted billing if meter readings are enabled
     if (tenantIdStr && (meterReadings.electricity.enabled || meterReadings.water.enabled)) {
       fetchPreviousReadingsForTenant(tenantIdStr);
     }
   };
 
-  // Handle Type Selection Change — auto-configure electricity/water from billing type
+  // Handle Type Selection Change — auto-configure electricity/water and billing cycle from billing type
   const handleTypeChange = (typeIdStr: string) => {
-    setFormData((prev) => ({ ...prev, billing_type_id: typeIdStr }));
     const selectedTypeObj = billingTypes.find((bt) => bt.id.toString() === typeIdStr);
+    const newFreq = (selectedTypeObj?.frequency || "monthly") as BillingFrequency;
+    setCycleFrequency(newFreq);
+    const newCycle = computeCycleValue(newFreq, cycleMonth, cycleQuarter, cycleYear);
+
+    setFormData((prev) => ({ 
+      ...prev, 
+      billing_type_id: typeIdStr,
+      billing_cycle: newCycle,
+    }));
 
     const nextReadings = {
       electricity: {
@@ -633,13 +850,37 @@ export default function BillingsPage() {
       if (formData.tenant_id) fetchPreviousReadingsForTenant(formData.tenant_id);
     }
 
-    triggerCalculation(typeIdStr, formData.base_amount, formData.due_date, nextReadings);
+    triggerCalculation(typeIdStr, formData.base_amount, formData.due_date, nextReadings, newCycle);
+  };
+
+  // Handle Month Change
+  const handleMonthChange = (newMonth: string) => {
+    setCycleMonth(newMonth);
+    const newCycle = computeCycleValue("monthly", newMonth, cycleQuarter, cycleYear);
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
+  };
+
+  // Handle Quarter Change
+  const handleQuarterChange = (newQuarter: string) => {
+    setCycleQuarter(newQuarter);
+    const newCycle = computeCycleValue("quarterly", cycleMonth, newQuarter, cycleYear);
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
+  };
+
+  // Handle Year Change
+  const handleYearChange = (newYear: string) => {
+    setCycleYear(newYear);
+    const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, newYear);
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
 
   // Handle Base Amount Change
   const handleBaseAmountChange = (amtStr: string) => {
     setFormData((prev) => ({ ...prev, base_amount: amtStr }));
-    triggerCalculation(formData.billing_type_id, amtStr, formData.due_date);
+    triggerCalculation(formData.billing_type_id, amtStr, formData.due_date, undefined, formData.billing_cycle);
   };
 
   // Helper to update a meter reading field and trigger recalculation
@@ -653,7 +894,7 @@ export default function BillingsPage() {
       [meter]: { ...meterReadings[meter], [field]: value },
     };
     setMeterReadings(next);
-    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, next);
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, next, formData.billing_cycle);
   };
 
   // Submit Form (Server-Side calculation)
@@ -663,8 +904,8 @@ export default function BillingsPage() {
 
     if (!formData.tenant_id) { setFormError("Please select a tenant."); return; }
     if (!formData.billing_type_id) { setFormError("Please select a billing category."); return; }
-    if (!formData.base_amount || isNaN(Number(formData.base_amount)) || Number(formData.base_amount) <= 0) {
-      setFormError("Please enter a valid base amount."); return;
+    if (formData.base_amount === "" || isNaN(Number(formData.base_amount)) || Number(formData.base_amount) < 0) {
+      setFormError("Base unit rate could not be determined. Please select a tenant with an assigned unit."); return;
     }
 
     setSubmitting(true);
@@ -686,27 +927,23 @@ export default function BillingsPage() {
         };
       }
 
-      // Build extra_charges payload (flat and other meter types)
-      const flatChargesPayload = extraCharges
-        .filter((c) => c.type === "flat")
-        .map((c) => ({ name: c.name, amount: computeExtraChargeAmount(c) }));
-
-      // Total extra flat charges
-      const flatChargesTotal = flatChargesPayload.reduce((s, c) => s + c.amount, 0);
-      const effectiveBaseAmount = Number(formData.base_amount) + flatChargesTotal;
+      // Build extra_charges payload (flat and custom charges)
+      const allExtraChargesPayload = extraCharges.map((c) => ({
+        name: c.name || "Additional Charge",
+        amount: computeExtraChargeAmount(c),
+      }));
 
       const body = {
         tenant_id: Number(formData.tenant_id),
         unit_id: Number(formData.unit_id),
         billing_type_id: Number(formData.billing_type_id),
-        base_amount: effectiveBaseAmount,
-        amount: serverCalculation?.total_amount
-          ? serverCalculation.total_amount + flatChargesTotal
-          : effectiveBaseAmount,
+        billing_cycle: formData.billing_cycle,
+        base_amount: Number(formData.base_amount || 0),
+        amount: computedTotalBilled,
         due_date: formData.due_date,
         late_fee_applied: Number(formData.late_fee_applied || 0),
         meter_readings: Object.keys(readingsPayload).length > 0 ? readingsPayload : undefined,
-        extra_charges: flatChargesPayload.length > 0 ? flatChargesPayload : undefined,
+        extra_charges: allExtraChargesPayload.length > 0 ? allExtraChargesPayload : undefined,
       };
 
       if (editingBilling) {
@@ -1339,9 +1576,15 @@ export default function BillingsPage() {
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">
-                          {billing.billing_type_name}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-800 w-fit">
+                            {billing.billing_type_name}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md w-fit border border-blue-200 shadow-2xs">
+                            <Repeat className="w-2.5 h-2.5 text-blue-600" />
+                            {formatBillingCycle(billing.billing_cycle || billing.BillingType?.frequency)}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1535,33 +1778,233 @@ export default function BillingsPage() {
                     {billingTypes.map((bt) => (
                       <option key={bt.id} value={bt.id.toString()}>
                         {bt.name}{" "}
+                        {bt.frequency ? `— ${formatBillingCycle(bt.frequency)}` : ""}{" "}
                         {bt.tax_percentage > 0
                           ? `(${bt.tax_percentage}% VAT)`
                           : ""}
                       </option>
                     ))}
                   </select>
+
+                  {/* Billing Cycle Period Selector (Frequency pulled from Billing Type) */}
+                  <div className="mt-3 p-3.5 bg-gradient-to-br from-blue-50/70 via-slate-50 to-indigo-50/50 border border-blue-200/80 rounded-xl space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Billing Cycle *</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] uppercase font-bold text-gray-500">
+                          Frequency:
+                        </span>
+                        <span className="text-[11px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md shadow-2xs">
+                          {formatBillingCycle(cycleFrequency)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Cycle Period Selector Based on Frequency pulled from Billing Type */}
+                    {cycleFrequency === "monthly" && (
+                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
+                        <label className="block text-[11px] font-semibold text-gray-700">
+                          Select Month & Year *
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Month</label>
+                            <div className="relative">
+                              <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                              <select
+                                value={cycleMonth}
+                                onChange={(e) => handleMonthChange(e.target.value)}
+                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                              >
+                                {MONTH_NAMES.map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Year</label>
+                            <select
+                              value={cycleYear}
+                              onChange={(e) => handleYearChange(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                            >
+                              {availableYears.map((y) => (
+                                <option key={y} value={y}>{y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
+                          <span>Cycle selected: <strong className="font-bold">{cycleMonth} {cycleYear}</strong> (Standard monthly charge)</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {cycleFrequency === "quarterly" && (
+                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
+                        <label className="block text-[11px] font-semibold text-gray-700">
+                          Select Billing Cycle (Quarter & Year) *
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Quarter</label>
+                            <div className="relative">
+                              <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                              <select
+                                value={cycleQuarter}
+                                onChange={(e) => handleQuarterChange(e.target.value)}
+                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                              >
+                                {QUARTER_OPTIONS.map((q) => (
+                                  <option key={q.value} value={q.value}>{q.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Year</label>
+                            <select
+                              value={cycleYear}
+                              onChange={(e) => handleYearChange(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                            >
+                              {availableYears.map((y) => (
+                                <option key={y} value={y}>{y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
+                          <span>Cycle selected: <strong className="font-bold">{cycleQuarter} {cycleYear}</strong> (Multiplied × 3 months)</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {cycleFrequency === "annually" && (
+                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
+                        <label className="block text-[11px] font-semibold text-gray-700">
+                          Select Billing Cycle (Year) *
+                        </label>
+                        <div>
+                          <div className="relative">
+                            <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                            <select
+                              value={cycleYear}
+                              onChange={(e) => handleYearChange(e.target.value)}
+                              className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                            >
+                              {availableYears.map((y) => (
+                                <option key={y} value={y}>Year {y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
+                          <span>Cycle selected: <strong className="font-bold">{cycleYear}</strong> (Multiplied × 12 months)</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {cycleFrequency === "one_time" && (
+                      <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-lg flex items-start gap-2 pt-1 border-t border-blue-100">
+                        <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="text-[11px] text-amber-800">
+                          <span className="font-bold">One-time Billing Exception:</span> No recurring cycle period applies to this invoice. It is billed as a single non-recurring charge.
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Base Amount */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
-                    Base Amount (₱) *
-                  </label>
+                {/* Billed Amount (Disabled field fetching base unit rate + extra charges & fees) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Billed Amount (₱) *
+                    </label>
+                    <span className="inline-flex items-center text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                      Auto-Fetched & Calculated
+                    </span>
+                  </div>
                   <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-gray-400 text-sm font-semibold">
+                    <span className="absolute left-3 top-2.5 text-gray-500 text-sm font-bold">
                       ₱
                     </span>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.base_amount}
-                      onChange={(e) => handleBaseAmountChange(e.target.value)}
-                      placeholder="15000.00"
-                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                      required
+                      type="text"
+                      disabled
+                      readOnly
+                      value={computedTotalBilled.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-gray-100/90 cursor-not-allowed select-none shadow-2xs"
                     />
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200/70 rounded-xl p-2.5 text-xs space-y-1.5">
+                    <div className="flex justify-between items-center text-gray-600">
+                      <span>
+                        Base Unit Rate ({selectedTenantInfo?.unit_number || "Selected Unit"}
+                        {serverCalculation?.cycle_multiplier && serverCalculation.cycle_multiplier > 1
+                          ? ` × ${serverCalculation.cycle_multiplier} mos for ${formatBillingCycle(formData.billing_cycle)}`
+                          : ""}):
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        ₱ {(serverCalculation?.cycle_base_amount ?? (Number(formData.base_amount || 0) * getCycleMultiplier(formData.billing_cycle))).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    {/* Electricity Submeter Row */}
+                    {(meterReadings.electricity.enabled || (serverCalculation?.meter_readings?.electricity?.amount || 0) > 0) && (
+                      <div className="flex justify-between items-center text-amber-800">
+                        <span className="flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-amber-600 inline" />
+                          <span>Electricity Submeter ({serverCalculation?.meter_readings?.electricity?.consumption ?? Math.max(0, Number(meterReadings.electricity.current) - Number(meterReadings.electricity.previous))} kWh @ ₱{serverCalculation?.meter_readings?.electricity?.rate_per_unit ?? meterReadings.electricity.rate}/kWh):</span>
+                        </span>
+                        <span className="font-semibold text-amber-700">
+                          + ₱ {(serverCalculation?.meter_readings?.electricity?.amount ?? localMeterElectricityCharge).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Water Submeter Row */}
+                    {(meterReadings.water.enabled || (serverCalculation?.meter_readings?.water?.amount || 0) > 0) && (
+                      <div className="flex justify-between items-center text-blue-800">
+                        <span className="flex items-center gap-1">
+                          <Droplets className="w-3 h-3 text-blue-600 inline" />
+                          <span>Water Submeter ({serverCalculation?.meter_readings?.water?.consumption ?? Math.max(0, Number(meterReadings.water.current) - Number(meterReadings.water.previous))} cu.m @ ₱{serverCalculation?.meter_readings?.water?.rate_per_unit ?? meterReadings.water.rate}/cu.m):</span>
+                        </span>
+                        <span className="font-semibold text-blue-700">
+                          + ₱ {(serverCalculation?.meter_readings?.water?.amount ?? localMeterWaterCharge).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Additional Extra Charges Row */}
+                    {extraChargesTotal > 0 && (
+                      <div className="flex justify-between items-center text-gray-600">
+                        <span>Additional Charges & Add-ons:</span>
+                        <span className="font-semibold text-emerald-700">
+                          + ₱ {extraChargesTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+
+                    {serverCalculation && ((serverCalculation.tax_amount > 0) || (serverCalculation.transfer_fee > 0)) && (
+                      <div className="flex justify-between items-center text-gray-600">
+                        <span>Fees & Taxes ({serverCalculation.billing_type_name}):</span>
+                        <span className="font-semibold text-blue-700">
+                          + ₱ {(serverCalculation.tax_amount + serverCalculation.transfer_fee).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1598,149 +2041,153 @@ export default function BillingsPage() {
                     <div className="border-t border-gray-200 divide-y divide-gray-100">
 
                       {/* ─── SECTION 1: Structured Meter Readings (Electricity & Water) ─── */}
-                      {(() => {
-                        const selectedTypeObj = billingTypes.find((bt) => bt.id.toString() === formData.billing_type_id);
-                        const showElectricity = selectedTypeObj?.has_electricity;
-                        const showWater = selectedTypeObj?.has_water;
-                        
-                        if (!showElectricity && !showWater) return null;
+                      <div className="p-3 space-y-2.5 bg-gray-50/50">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                            <Gauge className="w-3 h-3 text-blue-600" />
+                            <span>Utility Meter Readings (Submeters)</span>
+                          </p>
+                          {(meterReadings.electricity.enabled || meterReadings.water.enabled) && (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                              +₱{localMeterChargesTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} Total Meter Cost
+                            </span>
+                          )}
+                        </div>
 
-                        return (
-                          <div className="p-3 space-y-2.5 bg-gray-50/50">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Utility Meter Readings</p>
-
-                            {/* Electricity Card */}
-                            {showElectricity && (
-                              <div className={`rounded-xl border p-3 space-y-2.5 transition-colors ${meterReadings.electricity.enabled ? "bg-amber-50/60 border-amber-200" : "bg-white border-gray-200"}`}>
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={meterReadings.electricity.enabled}
-                                      onChange={(e) => handleMeterReadingChange("electricity", "enabled", e.target.checked)}
-                                      className="w-4 h-4 accent-amber-500 rounded"
-                                    />
-                                    <Zap className={`w-4 h-4 ${meterReadings.electricity.enabled ? "text-amber-500" : "text-gray-400"}`} />
-                                    <span className={`text-xs font-bold ${meterReadings.electricity.enabled ? "text-amber-950" : "text-gray-500"}`}>
-                                      Electricity Submeter
-                                    </span>
-                                  </label>
-                                  <span className="text-[11px] text-amber-700 font-semibold bg-amber-100/70 px-2 py-0.5 rounded-full">
-                                    ₱{meterReadings.electricity.rate}/kWh
-                                  </span>
-                                </div>
-
-                                {meterReadings.electricity.enabled && (
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5 flex items-center gap-1">
-                                        Prev. Reading (kWh)
-                                        {loadingPrevReadings && <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-500" />}
-                                      </label>
-                                      <input
-                                        type="number"
-                                        value={meterReadings.electricity.previous}
-                                        onChange={(e) => handleMeterReadingChange("electricity", "previous", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Current (kWh)</label>
-                                      <input
-                                        type="number"
-                                        value={meterReadings.electricity.current}
-                                        onChange={(e) => handleMeterReadingChange("electricity", "current", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Rate (₱/kWh)</label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={meterReadings.electricity.rate}
-                                        onChange={(e) => handleMeterReadingChange("electricity", "rate", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
-                                      />
-                                    </div>
-                                    <div className="col-span-3 bg-amber-100/50 border border-amber-200 rounded-lg px-3 py-1.5 flex justify-between text-[11px] font-medium text-amber-900">
-                                      <span>Usage: {Math.max(0, Number(meterReadings.electricity.current) - Number(meterReadings.electricity.previous))} kWh</span>
-                                      <span className="font-bold">
-                                        ₱{computeMeterAmount(meterReadings.electricity.previous, meterReadings.electricity.current, meterReadings.electricity.rate).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Water Card */}
-                            {showWater && (
-                              <div className={`rounded-xl border p-3 space-y-2.5 transition-colors ${meterReadings.water.enabled ? "bg-blue-50/60 border-blue-200" : "bg-white border-gray-200"}`}>
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={meterReadings.water.enabled}
-                                      onChange={(e) => handleMeterReadingChange("water", "enabled", e.target.checked)}
-                                      className="w-4 h-4 accent-blue-500 rounded"
-                                    />
-                                    <Droplets className={`w-4 h-4 ${meterReadings.water.enabled ? "text-blue-500" : "text-gray-400"}`} />
-                                    <span className={`text-xs font-bold ${meterReadings.water.enabled ? "text-blue-950" : "text-gray-500"}`}>
-                                      Water Submeter
-                                    </span>
-                                  </label>
-                                  <span className="text-[11px] text-blue-700 font-semibold bg-blue-100/70 px-2 py-0.5 rounded-full">
-                                    ₱{meterReadings.water.rate}/cu.m
-                                  </span>
-                                </div>
-
-                                {meterReadings.water.enabled && (
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5 flex items-center gap-1">
-                                        Prev. Reading (cu.m)
-                                        {loadingPrevReadings && <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-500" />}
-                                      </label>
-                                      <input
-                                        type="number"
-                                        value={meterReadings.water.previous}
-                                        onChange={(e) => handleMeterReadingChange("water", "previous", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Current (cu.m)</label>
-                                      <input
-                                        type="number"
-                                        value={meterReadings.water.current}
-                                        onChange={(e) => handleMeterReadingChange("water", "current", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Rate (₱/cu.m)</label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={meterReadings.water.rate}
-                                        onChange={(e) => handleMeterReadingChange("water", "rate", e.target.value)}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
-                                      />
-                                    </div>
-                                    <div className="col-span-3 bg-blue-100/50 border border-blue-200 rounded-lg px-3 py-1.5 flex justify-between text-[11px] font-medium text-blue-900">
-                                      <span>Usage: {Math.max(0, Number(meterReadings.water.current) - Number(meterReadings.water.previous))} cu.m</span>
-                                      <span className="font-bold">
-                                        ₱{computeMeterAmount(meterReadings.water.previous, meterReadings.water.current, meterReadings.water.rate).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                        {/* Electricity Card */}
+                        <div className={`rounded-xl border p-3 space-y-2.5 transition-colors ${meterReadings.electricity.enabled ? "bg-amber-50/60 border-amber-200" : "bg-white border-gray-200"}`}>
+                          <div className="flex items-center justify-between">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={meterReadings.electricity.enabled}
+                                onChange={(e) => handleMeterReadingChange("electricity", "enabled", e.target.checked)}
+                                className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                              />
+                              <Zap className={`w-4 h-4 ${meterReadings.electricity.enabled ? "text-amber-500" : "text-gray-400"}`} />
+                              <span className={`text-xs font-bold ${meterReadings.electricity.enabled ? "text-amber-950" : "text-gray-700"}`}>
+                                Electricity Submeter
+                              </span>
+                            </label>
+                            <span className="text-[11px] text-amber-700 font-semibold bg-amber-100/70 px-2 py-0.5 rounded-full">
+                              ₱{meterReadings.electricity.rate}/kWh
+                            </span>
                           </div>
-                        );
-                      })()}
+
+                          {meterReadings.electricity.enabled ? (
+                            <div className="grid grid-cols-3 gap-2 pt-1">
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5 flex items-center gap-1">
+                                  Prev. Reading (kWh)
+                                  {loadingPrevReadings && <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-500" />}
+                                </label>
+                                <input
+                                  type="number"
+                                  value={meterReadings.electricity.previous}
+                                  onChange={(e) => handleMeterReadingChange("electricity", "previous", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Current (kWh)</label>
+                                <input
+                                  type="number"
+                                  value={meterReadings.electricity.current}
+                                  onChange={(e) => handleMeterReadingChange("electricity", "current", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Rate (₱/kWh)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={meterReadings.electricity.rate}
+                                  onChange={(e) => handleMeterReadingChange("electricity", "rate", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-amber-400"
+                                />
+                              </div>
+                              <div className="col-span-3 bg-amber-100/50 border border-amber-200 rounded-lg px-3 py-1.5 flex justify-between text-[11px] font-medium text-amber-900">
+                                <span>Usage: {Math.max(0, Number(meterReadings.electricity.current) - Number(meterReadings.electricity.previous))} kWh</span>
+                                <span className="font-bold">
+                                  ₱{computeMeterAmount(meterReadings.electricity.previous, meterReadings.electricity.current, meterReadings.electricity.rate).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-gray-400 pl-6">
+                              Check to include tenant electricity submeter reading in this bill.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Water Card */}
+                        <div className={`rounded-xl border p-3 space-y-2.5 transition-colors ${meterReadings.water.enabled ? "bg-blue-50/60 border-blue-200" : "bg-white border-gray-200"}`}>
+                          <div className="flex items-center justify-between">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={meterReadings.water.enabled}
+                                onChange={(e) => handleMeterReadingChange("water", "enabled", e.target.checked)}
+                                className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                              />
+                              <Droplets className={`w-4 h-4 ${meterReadings.water.enabled ? "text-blue-500" : "text-gray-400"}`} />
+                              <span className={`text-xs font-bold ${meterReadings.water.enabled ? "text-blue-950" : "text-gray-700"}`}>
+                                Water Submeter
+                              </span>
+                            </label>
+                            <span className="text-[11px] text-blue-700 font-semibold bg-blue-100/70 px-2 py-0.5 rounded-full">
+                              ₱{meterReadings.water.rate}/cu.m
+                            </span>
+                          </div>
+
+                          {meterReadings.water.enabled ? (
+                            <div className="grid grid-cols-3 gap-2 pt-1">
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5 flex items-center gap-1">
+                                  Prev. Reading (cu.m)
+                                  {loadingPrevReadings && <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-500" />}
+                                </label>
+                                <input
+                                  type="number"
+                                  value={meterReadings.water.previous}
+                                  onChange={(e) => handleMeterReadingChange("water", "previous", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Current (cu.m)</label>
+                                <input
+                                  type="number"
+                                  value={meterReadings.water.current}
+                                  onChange={(e) => handleMeterReadingChange("water", "current", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Rate (₱/cu.m)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={meterReadings.water.rate}
+                                  onChange={(e) => handleMeterReadingChange("water", "rate", e.target.value)}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white font-semibold outline-none focus:border-blue-400"
+                                />
+                              </div>
+                              <div className="col-span-3 bg-blue-100/50 border border-blue-200 rounded-lg px-3 py-1.5 flex justify-between text-[11px] font-medium text-blue-900">
+                                <span>Usage: {Math.max(0, Number(meterReadings.water.current) - Number(meterReadings.water.previous))} cu.m</span>
+                                <span className="font-bold">
+                                  ₱{computeMeterAmount(meterReadings.water.previous, meterReadings.water.current, meterReadings.water.rate).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-gray-400 pl-6">
+                              Check to include tenant water submeter reading in this bill.
+                            </p>
+                          )}
+                        </div>
+                      </div>
 
                       {/* ─── SECTION 2: Flexible Additional Charges (WiFi, Gas, Parking, etc.) ─── */}
                       <div className="bg-white">
@@ -1972,7 +2419,7 @@ export default function BillingsPage() {
                     </div>
 
                     {/* Tenant & Unit */}
-                    <div className="text-xs space-y-1 bg-gray-50 p-3 rounded-lg">
+                    <div className="text-xs space-y-1.5 bg-gray-50 p-3 rounded-lg">
                       <div className="flex justify-between">
                         <span className="text-gray-500">Tenant:</span>
                         <span className="font-bold text-gray-900">
@@ -1985,15 +2432,29 @@ export default function BillingsPage() {
                           {selectedTenantInfo?.unit_number || "Select Unit"}
                         </span>
                       </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Billing Cycle:</span>
+                        <span className="font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded text-[11px] flex items-center gap-1 border border-blue-200">
+                          <Repeat className="w-2.5 h-2.5 text-blue-600" />
+                          {formatBillingCycle(formData.billing_cycle)}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Line Items Calculations */}
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between py-1 border-b border-gray-100">
-                        <span className="text-gray-600">Base Rental / Fee</span>
+                        <div>
+                          <span className="text-gray-600">Base Rental / Fee</span>
+                          {serverCalculation?.cycle_multiplier && serverCalculation.cycle_multiplier > 1 && (
+                            <div className="text-[10px] text-blue-600 font-medium">
+                              (₱{Number(formData.base_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} × {serverCalculation.cycle_multiplier} mos for {formatBillingCycle(formData.billing_cycle)})
+                            </div>
+                          )}
+                        </div>
                         <span className="font-semibold text-gray-900">
                           ₱{" "}
-                          {Number(formData.base_amount || 0).toLocaleString(
+                          {(serverCalculation?.cycle_base_amount ?? (Number(formData.base_amount || 0) * getCycleMultiplier(formData.billing_cycle))).toLocaleString(
                             "en-US",
                             { minimumFractionDigits: 2 },
                           )}
@@ -2001,27 +2462,30 @@ export default function BillingsPage() {
                       </div>
 
                       {/* Electricity Submeter Line Item */}
-                      {serverCalculation?.meter_readings?.electricity && (
+                      {(meterReadings.electricity.enabled || (serverCalculation?.meter_readings?.electricity?.amount || 0) > 0) && (
                         <div className="flex justify-between py-1 border-b border-gray-100 text-amber-700">
                           <div>
-                            <span>Electricity Submeter Fee</span>
+                            <span className="font-semibold flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-amber-500" />
+                              <span>Electricity Submeter Fee</span>
+                            </span>
                             <div className="text-[10px] text-amber-600">
                               (
                               {
-                                serverCalculation.meter_readings.electricity
-                                  .consumption
+                                serverCalculation?.meter_readings?.electricity?.consumption ??
+                                Math.max(0, Number(meterReadings.electricity.current) - Number(meterReadings.electricity.previous))
                               }{" "}
                               kWh @ ₱
                               {
-                                serverCalculation.meter_readings.electricity
-                                  .rate_per_unit
+                                serverCalculation?.meter_readings?.electricity?.rate_per_unit ??
+                                meterReadings.electricity.rate
                               }
                               /kWh)
                             </div>
                           </div>
-                          <span className="font-semibold">
+                          <span className="font-bold">
                             + ₱{" "}
-                            {serverCalculation.meter_readings.electricity.amount.toLocaleString(
+                            {(serverCalculation?.meter_readings?.electricity?.amount ?? localMeterElectricityCharge).toLocaleString(
                               "en-US",
                               { minimumFractionDigits: 2 },
                             )}
@@ -2030,27 +2494,30 @@ export default function BillingsPage() {
                       )}
 
                       {/* Water Submeter Line Item */}
-                      {serverCalculation?.meter_readings?.water && (
+                      {(meterReadings.water.enabled || (serverCalculation?.meter_readings?.water?.amount || 0) > 0) && (
                         <div className="flex justify-between py-1 border-b border-gray-100 text-blue-700">
                           <div>
-                            <span>Water Submeter Fee</span>
+                            <span className="font-semibold flex items-center gap-1">
+                              <Droplets className="w-3 h-3 text-blue-500" />
+                              <span>Water Submeter Fee</span>
+                            </span>
                             <div className="text-[10px] text-blue-600">
                               (
                               {
-                                serverCalculation.meter_readings.water
-                                  .consumption
+                                serverCalculation?.meter_readings?.water?.consumption ??
+                                Math.max(0, Number(meterReadings.water.current) - Number(meterReadings.water.previous))
                               }{" "}
                               cu.m @ ₱
                               {
-                                serverCalculation.meter_readings.water
-                                  .rate_per_unit
+                                serverCalculation?.meter_readings?.water?.rate_per_unit ??
+                                meterReadings.water.rate
                               }
                               /cu.m)
                             </div>
                           </div>
-                          <span className="font-semibold">
+                          <span className="font-bold">
                             + ₱{" "}
-                            {serverCalculation.meter_readings.water.amount.toLocaleString(
+                            {(serverCalculation?.meter_readings?.water?.amount ?? localMeterWaterCharge).toLocaleString(
                               "en-US",
                               { minimumFractionDigits: 2 },
                             )}
@@ -2130,10 +2597,7 @@ export default function BillingsPage() {
                         <span>Total Due</span>
                         <span>
                           ₱{" "}
-                          {(serverCalculation
-                            ? serverCalculation.total_amount + extraChargesTotal
-                            : Number(formData.base_amount || 0) + extraChargesTotal
-                          ).toLocaleString("en-US", {
+                          {computedTotalBilled.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </span>
@@ -2302,7 +2766,7 @@ export default function BillingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl text-xs">
                 <div>
                   <span className="text-gray-500 font-medium uppercase tracking-wider block">
                     Billed To:
@@ -2323,6 +2787,17 @@ export default function BillingsPage() {
                     {viewingBilling.building_name}
                   </p>
                 </div>
+                <div>
+                  <span className="text-gray-500 font-medium uppercase tracking-wider block">
+                    Billing Cycle:
+                  </span>
+                  <div className="mt-1">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100/90 px-2 py-0.5 rounded-md border border-blue-200">
+                      <Repeat className="w-3 h-3 text-blue-600" />
+                      {formatBillingCycle(viewingBilling.billing_cycle || viewingBilling.BillingType?.frequency)}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -2340,7 +2815,10 @@ export default function BillingsPage() {
                   <tbody className="divide-y divide-gray-100 bg-white">
                     <tr>
                       <td className="px-4 py-3 font-medium text-gray-900">
-                        {viewingBilling.billing_type_name} Base Amount
+                        <div>{viewingBilling.billing_type_name} Base Amount</div>
+                        <div className="text-[11px] text-gray-500 font-normal">
+                          Cycle: {formatBillingCycle(viewingBilling.billing_cycle || viewingBilling.BillingType?.frequency)}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
                         ₱{" "}
