@@ -5,7 +5,56 @@ import { Building, Tenant, Unit, Billing, Collection, MaintenanceTicket, syncDat
 import { getAdminIdFromRequest } from '@/lib/auth';
 import { getBuildingsList, getUnitsList } from '@/lib/propertiesStore';
 import { getTenantsList } from '@/lib/tenantsStore';
-import { getBillingsList } from '@/lib/billingsStore';
+import { getBillingsList, formatBillingReference } from '@/lib/billingsStore';
+
+function extractDueBillings(allBillings: any[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return allBillings
+    .filter((b: any) => {
+      // Exclude fully paid bills
+      if (b.status === 'paid') return false;
+      if (b.amount_paid && Number(b.amount_paid) >= Number(b.amount)) return false;
+      if (!b.due_date) return false;
+
+      const dueDate = new Date(b.due_date);
+      if (isNaN(dueDate.getTime())) return false;
+      dueDate.setHours(0, 0, 0, 0);
+
+      const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      // Include all past due (diffDays < 0) and near due within 14 days (diffDays <= 14)
+      return diffDays <= 14;
+    })
+    .map((b: any) => {
+      const dueDate = new Date(b.due_date);
+      dueDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+      let urgency: 'overdue' | 'due_today' | 'due_soon' | 'upcoming' = 'upcoming';
+      if (diffDays < 0) urgency = 'overdue';
+      else if (diffDays === 0) urgency = 'due_today';
+      else if (diffDays <= 3) urgency = 'due_soon';
+
+      return {
+        id: b.id,
+        reference_number: b.reference_number || formatBillingReference(b.id),
+        tenant_name: b.tenant_name || 'Tenant',
+        tenant_email: b.tenant_email || '',
+        unit_number: b.unit_number || `Unit #${b.unit_id}`,
+        building_name: b.building_name || 'Property',
+        billing_type_name: b.billing_type_name || 'General Bill',
+        amount: Number(b.amount || 0),
+        amount_paid: Number(b.amount_paid || 0),
+        balance_due: Math.max(0, Number(b.amount || 0) - Number(b.amount_paid || 0)),
+        due_date: b.due_date,
+        status: b.status,
+        diffDays,
+        urgency,
+      };
+    })
+    .sort((a: any, b: any) => a.diffDays - b.diffDays);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -126,6 +175,10 @@ export async function GET(request: NextRequest) {
         time: timeAgo(act.time)
       }));
 
+      // Extract billings that are near or past due
+      const allBillings = await getBillingsList({ admin_id: adminId });
+      const dueBillings = extractDueBillings(allBillings);
+
       return NextResponse.json({
         success: true,
         adminId,
@@ -133,9 +186,10 @@ export async function GET(request: NextRequest) {
         unitsCount,
         tenantsCount,
         collected: collectedAmount,
-        overdueCount,
+        overdueCount: dueBillings.filter(b => b.diffDays < 0).length || overdueCount,
         revenueData,
-        recentActivities
+        recentActivities,
+        dueBillings
       });
 
     } catch (dbErr: any) {
@@ -198,6 +252,8 @@ export async function GET(request: NextRequest) {
         time: timeAgo(act.time)
       }));
 
+      const dueBillings = extractDueBillings(billings);
+
       return NextResponse.json({
         success: true,
         adminId,
@@ -205,9 +261,10 @@ export async function GET(request: NextRequest) {
         unitsCount,
         tenantsCount,
         collected: collectedAmount > 0 ? collectedAmount : 15500,
-        overdueCount,
+        overdueCount: dueBillings.filter(b => b.diffDays < 0).length || overdueCount,
         revenueData,
-        recentActivities
+        recentActivities,
+        dueBillings
       });
     }
   } catch (error: any) {

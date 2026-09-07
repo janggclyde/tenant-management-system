@@ -149,6 +149,7 @@ export const Collection = sequelize.define("Collection", {
     type: DataTypes.ENUM("gcash", "qr", "cash"),
     allowNull: false,
   },
+  collected_date: { type: DataTypes.DATEONLY, allowNull: true },
   hitpay_reference: { type: DataTypes.STRING, allowNull: true },
   status: { type: DataTypes.STRING, defaultValue: "pending" },
   receipt_url: { type: DataTypes.STRING, allowNull: true },
@@ -331,7 +332,14 @@ export async function syncDatabase() {
   if (!isSynced) {
     try {
       await sequelize.authenticate();
-      // await sequelize.sync({ alter: true }); // Disabled for performance. Use migrations instead.
+      try {
+        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'collected_date'");
+        if (!cols || cols.length === 0) {
+          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `collected_date` DATE NULL");
+        }
+      } catch (colErr) {
+        // Ignore column check fallback
+      }
       isSynced = true;
     } catch (err: any) {
       // If DB is offline, continue gracefully
@@ -339,4 +347,5 @@ export async function syncDatabase() {
   }
 }
 
+export { sequelize };
 export default sequelize;

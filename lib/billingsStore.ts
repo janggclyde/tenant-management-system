@@ -52,6 +52,7 @@ export interface BillingRecord {
   late_fee_applied: number;
   meter_readings_json?: MeterReadingsData;
   extra_charges_json?: any;
+  reference_number?: string;
   amount: number; // Total amount due
   due_date: string;
   status: 'draft' | 'posted' | 'paid' | 'overdue';
@@ -94,21 +95,31 @@ export const mockTenantsUnits: any[] = [];
 export function extractBillingFrequency(cycle?: string, defaultFrequency: BillingFrequency = 'monthly'): BillingFrequency {
   if (!cycle) return defaultFrequency;
   const c = cycle.toLowerCase().trim();
-  if (c === 'quarterly' || c.startsWith('q1') || c.startsWith('q2') || c.startsWith('q3') || c.startsWith('q4') || c.includes('quarter')) {
+  if (c === 'one_time' || c === 'one-time' || c === 'onetime' || c.includes('one-time')) {
+    return 'one_time';
+  }
+  if (defaultFrequency === 'quarterly' || c === 'quarterly' || c.startsWith('q1') || c.startsWith('q2') || c.startsWith('q3') || c.startsWith('q4') || c.includes('quarter')) {
     return 'quarterly';
+  }
+  // Check annual date range: e.g. "Jan 26 2026 - Jan 26 2027"
+  const sameMonthAnnualMatch = c.match(/([a-z]+)\s+\d+\s+(\d{4})\s*-\s*\1\s+\d+\s+(\d{4})/i);
+  if (sameMonthAnnualMatch) {
+    return 'annually';
+  }
+  const annualRangeMatch = c.match(/(\d{4})\s*-\s*.*?(\d{4})/);
+  if (annualRangeMatch && parseInt(annualRangeMatch[2], 10) - parseInt(annualRangeMatch[1], 10) === 1 && !/oct|nov|dec/i.test(c)) {
+    return 'annually';
   }
   if (c === 'annually' || c === 'annual' || /^\d{4}$/.test(c) || c.startsWith('year')) {
     return 'annually';
-  }
-  if (c === 'one_time' || c === 'one-time' || c === 'onetime' || c.includes('one-time')) {
-    return 'one_time';
   }
   if (c === 'monthly') {
     return 'monthly';
   }
   const monthNames = [
     'january', 'february', 'march', 'april', 'may', 'june',
-    'july', 'august', 'september', 'october', 'november', 'december'
+    'july', 'august', 'september', 'october', 'november', 'december',
+    'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
   ];
   if (monthNames.some(m => c.includes(m))) {
     return 'monthly';
@@ -116,19 +127,8 @@ export function extractBillingFrequency(cycle?: string, defaultFrequency: Billin
   return defaultFrequency;
 }
 
-export function formatBillingCycle(cycle?: string): string {
-  if (!cycle) return 'Monthly';
-  const trimmed = cycle.trim();
-  switch (trimmed.toLowerCase()) {
-    case 'quarterly': return 'Quarterly';
-    case 'annually':
-    case 'annual': return 'Annually';
-    case 'one_time':
-    case 'one-time': return 'One-time';
-    case 'monthly': return 'Monthly';
-    default: return trimmed;
-  }
-}
+import { formatBillingCycle, formatBillingReference } from './utils';
+export { formatBillingCycle, formatBillingReference };
 
 // SERVER-SIDE FINANCIAL & METER READING CALCULATIONS ENGINE
 export async function calculateServerSideBilling(data: {
@@ -448,6 +448,7 @@ export async function deleteBillingType(id: number, adminId?: number) {
 
 // BILLINGS LIST & CRUD
 export async function getBillingsList(filters?: { query?: string; status?: string; billing_type_id?: string; admin_id?: number }) {
+  await syncDatabase();
   try {
     const whereClause: any = {};
     if (filters?.admin_id) {
@@ -477,13 +478,16 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
           calculatedStatus = 'overdue';
         }
 
+        const rawEmail = item.Tenant?.User?.email;
+        const cleanEmail = rawEmail && !rawEmail.endsWith('@noemail.local') ? rawEmail : '';
         const infoJson = item.Tenant?.personal_info_json;
         const tenantName = infoJson?.first_name 
-          ? `${infoJson.first_name} ${infoJson.last_name || ''}`
-          : item.Tenant?.User?.email || `Tenant #${item.tenant_id}`;
+          ? `${infoJson.first_name} ${infoJson.last_name || ''}`.trim()
+          : (cleanEmail || `Tenant #${item.tenant_id}`);
 
         return {
           id: item.id,
+          reference_number: formatBillingReference(item.id),
           admin_id: item.admin_id,
           billing_type_id: item.billing_type_id,
           tenant_id: item.tenant_id,
@@ -502,7 +506,7 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
           created_at: item.createdAt,
           billing_type_name: item.BillingType?.name || 'General Bill',
           tenant_name: tenantName,
-          tenant_email: item.Tenant?.User?.email || '',
+          tenant_email: cleanEmail,
           unit_number: item.Unit?.unit_number || `Unit #${item.unit_id}`,
           building_name: item.Unit?.Building?.name || 'Main Building',
           amount_paid: amountPaid,
@@ -526,7 +530,7 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
     } else if (item.status === 'posted' && item.due_date < currentDate) {
       calculatedStatus = 'overdue';
     }
-    return { ...item, status: calculatedStatus };
+    return { ...item, reference_number: formatBillingReference(item.id), status: calculatedStatus };
   });
 
   return applyFilters(list, filters);
@@ -543,6 +547,7 @@ function applyFilters(records: BillingRecord[], filters?: { query?: string; stat
     const q = filters.query.toLowerCase().trim();
     filtered = filtered.filter(item => 
       item.id.toString().includes(q) ||
+      (item.reference_number && item.reference_number.toLowerCase().includes(q)) ||
       item.tenant_name?.toLowerCase().includes(q) ||
       item.tenant_email?.toLowerCase().includes(q) ||
       item.unit_number?.toLowerCase().includes(q) ||
@@ -576,6 +581,7 @@ export async function createBilling(data: {
   meter_readings?: any;
   extra_charges?: any[];
 }) {
+  await syncDatabase();
   const admin_id = data.admin_id || 2;
   // Server-Side Financial & Meter Calculation
   const calculated = await calculateServerSideBilling({
@@ -606,8 +612,17 @@ export async function createBilling(data: {
       due_date: calculated.due_date,
       status: 'draft', // Creation is strictly draft
     });
-    return created.get({ plain: true });
+    const createdId = created.getDataValue ? created.getDataValue('id') : created.id;
+    const fullBilling = await getBillingById(createdId, admin_id);
+    if (fullBilling) return fullBilling;
+
+    const plain = created.get({ plain: true });
+    return {
+      ...plain,
+      reference_number: formatBillingReference(plain.id)
+    };
   } catch (err) {
+    console.error('Database createBilling error:', err);
     // DB Fallback
     const newId = mockBillings.length > 0 ? Math.max(...mockBillings.map(b => b.id)) + 1 : 1001;
     const bType = mockBillingTypes.find(t => t.id === Number(data.billing_type_id)) || mockBillingTypes[0];
@@ -751,8 +766,16 @@ export async function getBillingById(id: number, adminId?: number) {
         calculatedStatus = 'overdue';
       }
 
+      const rawEmail = item.Tenant?.User?.email;
+      const cleanEmail = rawEmail && !rawEmail.endsWith('@noemail.local') ? rawEmail : '';
+      const infoJson = item.Tenant?.personal_info_json;
+      const tenantName = infoJson?.first_name 
+        ? `${infoJson.first_name} ${infoJson.last_name || ''}`.trim()
+        : (cleanEmail || `Tenant #${item.tenant_id}`);
+
       return {
         ...item,
+        reference_number: formatBillingReference(item.id),
         billing_cycle: item.billing_cycle || item.BillingType?.frequency || 'monthly',
         base_amount: Number(item.base_amount || item.amount),
         tax_percentage: Number(item.BillingType?.tax_percentage || 0),
@@ -764,8 +787,8 @@ export async function getBillingById(id: number, adminId?: number) {
         amount: Number(item.amount),
         status: calculatedStatus,
         billing_type_name: item.BillingType?.name || 'General Bill',
-        tenant_name: item.Tenant?.User?.email || `Tenant #${item.tenant_id}`,
-        tenant_email: item.Tenant?.User?.email || '',
+        tenant_name: tenantName,
+        tenant_email: cleanEmail,
         unit_number: item.Unit?.unit_number || `Unit #${item.unit_id}`,
         building_name: item.Unit?.Building?.name || 'Main Building',
         amount_paid: amountPaid,
@@ -775,5 +798,9 @@ export async function getBillingById(id: number, adminId?: number) {
     // DB Fallback
   }
 
-  return mockBillings.find(b => b.id === id && (!adminId || b.admin_id === adminId)) || null;
+  const mockFound = mockBillings.find(b => b.id === id && (!adminId || b.admin_id === adminId));
+  if (mockFound) {
+    return { ...mockFound, reference_number: formatBillingReference(mockFound.id) };
+  }
+  return null;
 }

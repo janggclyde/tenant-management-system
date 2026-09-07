@@ -63,12 +63,14 @@ export async function getTenantsList(filters?: {
         const latestContract = contracts[contracts.length - 1] || {};
         const infoJson = item.personal_info_json || {};
 
+        const rawEmail = item.User?.email;
+        const cleanEmail = rawEmail && !rawEmail.endsWith("@noemail.local") ? rawEmail : "";
         const firstName = infoJson.first_name || "";
         const lastName = infoJson.last_name || "";
         const fullName =
           firstName || lastName
             ? `${firstName} ${lastName}`.trim()
-            : item.User?.email || `Tenant #${item.id}`;
+            : cleanEmail || `Tenant #${item.id}`;
 
         return {
           id: item.id,
@@ -77,7 +79,7 @@ export async function getTenantsList(filters?: {
           first_name: firstName,
           last_name: lastName,
           full_name: fullName,
-          email: item.User?.email || "",
+          email: cleanEmail,
           emergency_contact: item.emergency_contact || "N/A",
           status: item.User?.status || "active",
           contract_id: latestContract.id,
@@ -220,7 +222,7 @@ export async function updateTenant(
       }
 
       // Update Contract
-      if (data.unit_id || data.move_in_date || data.move_out_date) {
+      if (data.unit_id || data.move_in_date || 'move_out_date' in data) {
         const contract: any = await Contract.findOne({
           where: { tenant_id: id },
         });
@@ -228,7 +230,7 @@ export async function updateTenant(
           await contract.update({
             unit_id: data.unit_id || contract.unit_id,
             move_in_date: data.move_in_date || contract.move_in_date,
-            move_out_date: data.move_out_date || contract.move_out_date,
+            move_out_date: 'move_out_date' in data ? (data.move_out_date || null) : contract.move_out_date,
           });
         }
       }

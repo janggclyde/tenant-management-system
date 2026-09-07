@@ -27,6 +27,7 @@ export async function GET(
 
     const pdfBuffer = await generateBillPDF({
       id: billing.id,
+      invoice_no: billing.reference_number || `IN-${String(billing.id).padStart(5, '0')}`,
       billing_type_name: billing.billing_type_name || 'Monthly Rent',
       tenant_name: billing.tenant_name || 'Valued Tenant',
       tenant_email: tenantEmail,
@@ -49,7 +50,8 @@ export async function GET(
       support_phone: settings.support_phone
     });
 
-    const filename = `Statement_Invoice_${billing.id}_${billing.unit_number ? billing.unit_number.replace(/\s+/g, '_') : 'unit'}.pdf`;
+    const invRef = billing.reference_number || `IN-${String(billing.id).padStart(5, '0')}`;
+    const filename = `Statement_Invoice_${invRef}_${billing.unit_number ? billing.unit_number.replace(/\s+/g, '_') : 'unit'}.pdf`;
 
     return new NextResponse(pdfBuffer as any, {
       status: 200,

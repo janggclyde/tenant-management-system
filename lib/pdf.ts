@@ -125,7 +125,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         .font("Times-Roman")
         .fontSize(9)
         .text(
-          `Invoice No: INV-${new Date().getFullYear()}-${String(billData.id).padStart(5, "0")}`,
+          `Invoice No: ${billData.invoice_no || `IN-${String(billData.id).padStart(5, "0")}`}`,
           320,
           88,
           { align: "right", width: 225 },

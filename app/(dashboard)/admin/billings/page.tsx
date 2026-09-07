@@ -37,7 +37,8 @@ import {
   Filter,
 } from "lucide-react";
 import Link from "next/link";
-import { BillingRecord, BillingTypeRecord, BillingFrequency } from "@/lib/billingsStore";
+import type { BillingRecord, BillingTypeRecord, BillingFrequency } from "@/lib/billingsStore";
+import { formatBillingReference } from "@/lib/utils";
 
 function formatBillingCycle(cycle?: string): string {
   if (!cycle) return "Monthly";
@@ -53,9 +54,20 @@ function formatBillingCycle(cycle?: string): string {
   }
 }
 
+function isValidTenantEmail(email?: string | null): boolean {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim().toLowerCase();
+  return Boolean(trimmed && trimmed.includes("@") && !trimmed.endsWith("@noemail.local"));
+}
+
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
+];
+
+const SHORT_MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
 const QUARTER_OPTIONS = [
@@ -65,10 +77,49 @@ const QUARTER_OPTIONS = [
   { value: "Q4", label: "Q4 (Oct – Dec)" },
 ];
 
+function parseMoveInDate(moveInDateStr?: string): { day: number; monthIndex: number; year: number } {
+  if (!moveInDateStr) {
+    const now = new Date();
+    return { day: 1, monthIndex: now.getMonth(), year: now.getFullYear() };
+  }
+  const cleanStr = moveInDateStr.split("T")[0];
+  const parts = cleanStr.split("-").map(Number);
+  if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+    return {
+      year: parts[0],
+      monthIndex: parts[1] - 1, // 0-indexed month
+      day: parts[2],
+    };
+  }
+  const d = new Date(moveInDateStr);
+  if (!isNaN(d.getTime())) {
+    return { day: d.getDate(), monthIndex: d.getMonth(), year: d.getFullYear() };
+  }
+  return { day: 1, monthIndex: new Date().getMonth(), year: new Date().getFullYear() };
+}
+
 function getCycleMultiplier(cycle?: string): number {
   if (!cycle) return 1;
   const c = cycle.toLowerCase().trim();
-  if (c === "quarterly" || c.startsWith("q1") || c.startsWith("q2") || c.startsWith("q3") || c.startsWith("q4") || c.includes("quarter")) return 3;
+  if (c === "one_time" || c === "one-time" || c === "onetime") return 1;
+  if (
+    c === "quarterly" ||
+    c.startsWith("q1") ||
+    c.startsWith("q2") ||
+    c.startsWith("q3") ||
+    c.startsWith("q4") ||
+    c.includes("quarter")
+  ) {
+    return 3;
+  }
+  const sameMonthAnnualMatch = c.match(/([a-z]+)\s+\d+\s+(\d{4})\s*-\s*\1\s+\d+\s+(\d{4})/i);
+  if (sameMonthAnnualMatch) {
+    return 12;
+  }
+  const annualRangeMatch = c.match(/(\d{4})\s*-\s*.*?(\d{4})/);
+  if (annualRangeMatch && parseInt(annualRangeMatch[2], 10) - parseInt(annualRangeMatch[1], 10) === 1 && !/oct|nov|dec/i.test(c)) {
+    return 12;
+  }
   if (c === "annually" || c === "annual" || /^\d{4}$/.test(c) || c.startsWith("year")) return 12;
   return 1;
 }
@@ -77,19 +128,38 @@ function computeCycleValue(
   freq: BillingFrequency,
   month: string,
   quarter: string,
-  year: string
+  year: string,
+  moveInDateStr?: string
 ): string {
+  const { day, monthIndex } = parseMoveInDate(moveInDateStr);
+  const yr = parseInt(year, 10) || new Date().getFullYear();
+
   switch (freq) {
-    case "monthly":
-      return `${month} ${year}`;
-    case "quarterly":
-      return `${quarter} ${year}`;
-    case "annually":
-      return `${year}`;
+    case "monthly": {
+      const startMonthIndex = MONTH_NAMES.findIndex(
+        (m) => m.toLowerCase() === month.toLowerCase()
+      );
+      const safeStartIndex = startMonthIndex >= 0 ? startMonthIndex : 0;
+      const endMonthIndex = (safeStartIndex + 1) % 12;
+      const startMonthName = MONTH_NAMES[safeStartIndex];
+      const endMonthName = MONTH_NAMES[endMonthIndex];
+      return `${startMonthName} ${day} - ${endMonthName} ${day}`;
+    }
+    case "quarterly": {
+      const qNum = parseInt(quarter.replace(/\D/g, ""), 10) || 1;
+      const startMIdx = (qNum - 1) * 3;
+      const endMIdx = (startMIdx + 3) % 12;
+      const endYr = startMIdx + 3 >= 12 ? yr + 1 : yr;
+      return `${SHORT_MONTH_NAMES[startMIdx]} ${day} ${yr} - ${SHORT_MONTH_NAMES[endMIdx]} ${day} ${endYr}`;
+    }
+    case "annually": {
+      const mShort = SHORT_MONTH_NAMES[monthIndex] || "Jan";
+      return `${mShort} ${day} ${yr} - ${mShort} ${day} ${yr + 1}`;
+    }
     case "one_time":
       return "One-time";
     default:
-      return `${month} ${year}`;
+      return `${month} ${day} - ${MONTH_NAMES[(MONTH_NAMES.indexOf(month) + 1) % 12]} ${day}`;
   }
 }
 
@@ -128,6 +198,43 @@ function parseCycleState(cycleStr?: string, defaultFrequency: BillingFrequency =
     return { frequency: "monthly" as BillingFrequency, month: defaultMonth, quarter: defaultQuarter, year: currentYear };
   }
 
+  // Check Annual Range: e.g. "Jan 26 2026 - Jan 26 2027"
+  const sameMonthAnnualMatch = str.match(/([a-z]+)\s+\d+\s+(\d{4})\s*-\s*\1\s+\d+\s+(\d{4})/i);
+  if (sameMonthAnnualMatch) {
+    return {
+      frequency: "annually" as BillingFrequency,
+      year: sameMonthAnnualMatch[2],
+      quarter: defaultQuarter,
+      month: defaultMonth,
+    };
+  }
+
+  const annualRangeMatch = str.match(/\b(\d{4})\b\s*-\s*.*?\b(\d{4})\b/);
+  if (annualRangeMatch && parseInt(annualRangeMatch[2], 10) - parseInt(annualRangeMatch[1], 10) === 1 && !/oct|nov|dec/i.test(str)) {
+    return {
+      frequency: "annually" as BillingFrequency,
+      year: annualRangeMatch[1],
+      quarter: defaultQuarter,
+      month: defaultMonth,
+    };
+  }
+
+  // Check Quarterly Range: e.g. "Jan 26 2026 - Apr 26 2026" or "Q1: Jan 26 - Apr 26 2026"
+  const qRangeMatch = str.match(/^(?:Q([1-4])[:\s]*)?([A-Za-z]+)\s+\d+\s+(\d{4})\s*-\s*([A-Za-z]+)\s+\d+\s+(\d{4})/i);
+  if (qRangeMatch) {
+    let qCode = qRangeMatch[1] ? `Q${qRangeMatch[1]}` : undefined;
+    if (!qCode) {
+      const sM = qRangeMatch[2].toLowerCase();
+      qCode = sM.startsWith("jan") ? "Q1" : sM.startsWith("apr") ? "Q2" : sM.startsWith("jul") ? "Q3" : "Q4";
+    }
+    return {
+      frequency: "quarterly" as BillingFrequency,
+      quarter: qCode,
+      year: qRangeMatch[3],
+      month: defaultMonth,
+    };
+  }
+
   // Check Quarter: e.g. "Q1 2026" or "Q3 2025"
   const qMatch = str.match(/^(Q[1-4])\s+(\d{4})$/i);
   if (qMatch) {
@@ -136,6 +243,18 @@ function parseCycleState(cycleStr?: string, defaultFrequency: BillingFrequency =
       quarter: qMatch[1].toUpperCase(),
       year: qMatch[2],
       month: defaultMonth,
+    };
+  }
+
+  // Check Monthly Range: e.g. "June 21 - July 21" or "June 21 - July 21 2026"
+  const monthlyRangeMatch = str.match(/^([A-Za-z]+)\s+\d+\s*-\s*([A-Za-z]+)\s+\d+(?:\s+(\d{4}))?$/i);
+  if (monthlyRangeMatch) {
+    const foundMonth = MONTH_NAMES.find((m) => m.toLowerCase().startsWith(monthlyRangeMatch[1].toLowerCase()));
+    return {
+      frequency: "monthly" as BillingFrequency,
+      month: foundMonth || defaultMonth,
+      year: monthlyRangeMatch[3] || currentYear,
+      quarter: defaultQuarter,
     };
   }
 
@@ -180,6 +299,7 @@ interface TenantUnitOption {
   unit_number: string;
   building_name: string;
   monthly_rent?: number;
+  move_in_date?: string;
 }
 
 // Extra Charge Types (for flexible additional charges, NOT electricity/water which are structured)
@@ -297,6 +417,10 @@ export default function BillingsPage() {
   };
 
   const handleSendStatementEmail = async (billingId: number, tenantEmail?: string) => {
+    if (!isValidTenantEmail(tenantEmail)) {
+      showToast("Tenant has no email address. Bill is posted directly without sending an email.", "error");
+      return;
+    }
     setSendingEmailId(billingId);
     try {
       const res = await fetch(`/api/admin/billings/${billingId}/send-statement`, {
@@ -304,7 +428,7 @@ export default function BillingsPage() {
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Failed to dispatch statement email");
-      showToast(data.message || `Statement PDF emailed to ${tenantEmail || "tenant"}`, "success");
+      showToast(data.message || `Statement PDF emailed to ${tenantEmail}`, "success");
     } catch (err: any) {
       showToast(err.message || "Failed to dispatch email", "error");
     } finally {
@@ -345,6 +469,14 @@ export default function BillingsPage() {
     const currentY = new Date().getFullYear();
     return Array.from({ length: 7 }, (_, i) => (currentY - 1 + i).toString());
   }, []);
+
+  const selectedTenantInfo = useMemo(() => {
+    return tenantsUnits.find((tu) => tu.tenant_id.toString() === formData.tenant_id);
+  }, [tenantsUnits, formData.tenant_id]);
+
+  const { day: moveInDay, monthIndex: moveInMonthIndex } = useMemo(() => {
+    return parseMoveInDate(selectedTenantInfo?.move_in_date);
+  }, [selectedTenantInfo?.move_in_date]);
 
   // STRUCTURED METER READINGS: Electricity & Water (driven by billing type config)
   const [meterReadings, setMeterReadings] = useState({
@@ -574,7 +706,7 @@ export default function BillingsPage() {
       const data = await res.json();
       if (data.success && data.calculation) {
         setServerCalculation(data.calculation);
-        if (!customDueDate && data.calculation.due_date) {
+        if (!customDueDate && !formData.due_date && data.calculation.due_date) {
           setFormData((prev) => ({ ...prev, due_date: data.calculation.due_date }));
         }
       }
@@ -598,7 +730,9 @@ export default function BillingsPage() {
       // Search Query Filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const refNo = item.reference_number || formatBillingReference(item.id);
         const matchesQuery =
+          refNo.toLowerCase().includes(q) ||
           item.id.toString().includes(q) ||
           item.tenant_name?.toLowerCase().includes(q) ||
           item.tenant_email?.toLowerCase().includes(q) ||
@@ -689,12 +823,16 @@ export default function BillingsPage() {
     const currQuarter = `Q${Math.floor(now.getMonth() / 3) + 1}`;
     const currYear = now.getFullYear().toString();
     const initialFreq = (defaultType?.frequency || "monthly") as BillingFrequency;
-    const initialCycle = computeCycleValue(initialFreq, currMonth, currQuarter, currYear);
+    const initialCycle = computeCycleValue(initialFreq, currMonth, currQuarter, currYear, defaultTenant?.move_in_date);
 
     setCycleFrequency(initialFreq);
     setCycleMonth(currMonth);
     setCycleQuarter(currQuarter);
     setCycleYear(currYear);
+
+    const initialDueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
 
     setFormData({
       tenant_id: initialTenantId,
@@ -702,9 +840,7 @@ export default function BillingsPage() {
       billing_type_id: initialTypeId,
       billing_cycle: initialCycle,
       base_amount: initialBaseAmt,
-      due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0],
+      due_date: initialDueDate,
       late_fee_applied: "0",
     });
 
@@ -738,7 +874,7 @@ export default function BillingsPage() {
     }
 
     if (initialTypeId) {
-      triggerCalculation(initialTypeId, initialBaseAmt, undefined, resetReadings, initialCycle);
+      triggerCalculation(initialTypeId, initialBaseAmt, initialDueDate, resetReadings, initialCycle);
     }
   };
 
@@ -748,6 +884,7 @@ export default function BillingsPage() {
     const baseAmt = (billing.base_amount || billing.amount || 0).toString();
     const billingType = billingTypes.find((bt) => bt.id === billing.billing_type_id);
     const defaultFreq = (billingType?.frequency || "monthly") as BillingFrequency;
+    const currentTenant = tenantsUnits.find((tu) => tu.tenant_id === billing.tenant_id);
 
     const parsed = parseCycleState(billing.billing_cycle, defaultFreq);
     setCycleFrequency(parsed.frequency);
@@ -755,7 +892,7 @@ export default function BillingsPage() {
     setCycleQuarter(parsed.quarter);
     setCycleYear(parsed.year);
 
-    const currentCycle = billing.billing_cycle || computeCycleValue(parsed.frequency, parsed.month, parsed.quarter, parsed.year);
+    const currentCycle = billing.billing_cycle || computeCycleValue(parsed.frequency, parsed.month, parsed.quarter, parsed.year, currentTenant?.move_in_date);
 
     setFormData({
       tenant_id: billing.tenant_id.toString(),
@@ -798,17 +935,20 @@ export default function BillingsPage() {
     triggerCalculation(billing.billing_type_id.toString(), baseAmt, billing.due_date, restoredReadings, currentCycle);
   };
 
-  // Handle Tenant Selection Change — auto-fills unit rate and previous readings for electricity/water
+  // Handle Tenant Selection Change — auto-fills unit rate, cycle period, and previous readings for electricity/water
   const handleTenantChange = (tenantIdStr: string) => {
     const selectedTU = tenantsUnits.find((tu) => tu.tenant_id.toString() === tenantIdStr);
     const unitRate = selectedTU?.monthly_rent !== undefined ? selectedTU.monthly_rent.toString() : "0";
+    const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, cycleYear, selectedTU?.move_in_date);
+
     setFormData((prev) => ({
       ...prev,
       tenant_id: tenantIdStr,
       unit_id: selectedTU ? selectedTU.unit_id.toString() : prev.unit_id,
       base_amount: unitRate,
+      billing_cycle: newCycle,
     }));
-    triggerCalculation(formData.billing_type_id, unitRate, formData.due_date, undefined, formData.billing_cycle);
+    triggerCalculation(formData.billing_type_id, unitRate, formData.due_date, undefined, newCycle);
     // Auto-fill previous readings from tenant's last posted billing if meter readings are enabled
     if (tenantIdStr && (meterReadings.electricity.enabled || meterReadings.water.enabled)) {
       fetchPreviousReadingsForTenant(tenantIdStr);
@@ -820,7 +960,7 @@ export default function BillingsPage() {
     const selectedTypeObj = billingTypes.find((bt) => bt.id.toString() === typeIdStr);
     const newFreq = (selectedTypeObj?.frequency || "monthly") as BillingFrequency;
     setCycleFrequency(newFreq);
-    const newCycle = computeCycleValue(newFreq, cycleMonth, cycleQuarter, cycleYear);
+    const newCycle = computeCycleValue(newFreq, cycleMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
 
     setFormData((prev) => ({ 
       ...prev, 
@@ -856,7 +996,7 @@ export default function BillingsPage() {
   // Handle Month Change
   const handleMonthChange = (newMonth: string) => {
     setCycleMonth(newMonth);
-    const newCycle = computeCycleValue("monthly", newMonth, cycleQuarter, cycleYear);
+    const newCycle = computeCycleValue("monthly", newMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -864,7 +1004,7 @@ export default function BillingsPage() {
   // Handle Quarter Change
   const handleQuarterChange = (newQuarter: string) => {
     setCycleQuarter(newQuarter);
-    const newCycle = computeCycleValue("quarterly", cycleMonth, newQuarter, cycleYear);
+    const newCycle = computeCycleValue("quarterly", cycleMonth, newQuarter, cycleYear, selectedTenantInfo?.move_in_date);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -872,7 +1012,7 @@ export default function BillingsPage() {
   // Handle Year Change
   const handleYearChange = (newYear: string) => {
     setCycleYear(newYear);
-    const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, newYear);
+    const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, newYear, selectedTenantInfo?.move_in_date);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -995,8 +1135,12 @@ export default function BillingsPage() {
       const data = await res.json();
       if (data.success) {
         setIsPostConfirmModalOpen(false);
-        const recipient = postingBilling.tenant_email || "the tenant";
-        showToast(`Invoice #${postingBilling.id} posted! Statement PDF automatically emailed to ${recipient}.`, "success");
+        const hasEmail = isValidTenantEmail(postingBilling.tenant_email);
+        if (hasEmail && data.emailNotification?.success) {
+          showToast(`Invoice #${postingBilling.id} posted! Statement PDF automatically emailed to ${postingBilling.tenant_email}.`, "success");
+        } else {
+          showToast(`Invoice #${postingBilling.id} posted directly!`, "success");
+        }
         setPostingBilling(null);
         fetchBillings();
       } else {
@@ -1121,10 +1265,6 @@ export default function BillingsPage() {
         );
     }
   };
-
-  const selectedTenantInfo = tenantsUnits.find(
-    (tu) => tu.tenant_id.toString() === formData.tenant_id,
-  );
 
   const parsedViewReadings = useMemo(() => {
     if (!viewingBilling || !viewingBilling.meter_readings_json) return null;
@@ -1474,7 +1614,7 @@ export default function BillingsPage() {
                     scope="col"
                     className="px-6 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider"
                   >
-                    Invoice ID
+                    Reference No.
                   </th>
                   <th
                     scope="col"
@@ -1535,10 +1675,10 @@ export default function BillingsPage() {
                       title="Click row to view billing statement invoice"
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="font-mono text-sm font-bold text-gray-900">
-                          #{billing.id}
+                        <span className="font-mono text-sm font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                          {billing.reference_number || formatBillingReference(billing.id)}
                         </span>
-                        <div className="text-xs text-gray-400">
+                        <div className="text-xs text-gray-400 mt-0.5">
                           {billing.created_at
                             ? new Date(billing.created_at).toLocaleDateString()
                             : ""}
@@ -1559,7 +1699,11 @@ export default function BillingsPage() {
                               {billing.tenant_name}
                             </div>
                             <div className="text-xs text-gray-500">
-                              {billing.tenant_email}
+                              {isValidTenantEmail(billing.tenant_email) ? (
+                                billing.tenant_email
+                              ) : (
+                                <span className="text-gray-400 italic">No email</span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1635,7 +1779,11 @@ export default function BillingsPage() {
                                 handleOpenPostConfirmModal(billing);
                               }}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-xs font-semibold shadow-2xs transition-all flex items-center gap-1 cursor-pointer"
-                              title="Post/Publish this draft bill and email statement"
+                              title={
+                                isValidTenantEmail(billing.tenant_email)
+                                  ? "Post bill and email statement"
+                                  : "Post bill directly (no email registered)"
+                              }
                             >
                               <Send className="w-3.5 h-3.5" />
                               <span>Post Bill</span>
@@ -1657,9 +1805,17 @@ export default function BillingsPage() {
                                   e.stopPropagation();
                                   handleSendStatementEmail(billing.id, billing.tenant_email);
                                 }}
-                                disabled={sendingEmailId === billing.id}
-                                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                                title="Resend Statement Email with PDF"
+                                disabled={sendingEmailId === billing.id || !isValidTenantEmail(billing.tenant_email)}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  !isValidTenantEmail(billing.tenant_email)
+                                    ? "text-gray-300 cursor-not-allowed opacity-50"
+                                    : "text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+                                }`}
+                                title={
+                                  isValidTenantEmail(billing.tenant_email)
+                                    ? "Resend Statement Email with PDF"
+                                    : "Tenant has no email registered"
+                                }
                               >
                                 <Mail className={`w-4 h-4 ${sendingEmailId === billing.id ? 'animate-spin' : ''}`} />
                               </button>
@@ -1811,7 +1967,7 @@ export default function BillingsPage() {
                         </label>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Month</label>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Month (Cycle Period)</label>
                             <div className="relative">
                               <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
                               <select
@@ -1819,9 +1975,14 @@ export default function BillingsPage() {
                                 onChange={(e) => handleMonthChange(e.target.value)}
                                 className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
                               >
-                                {MONTH_NAMES.map((m) => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
+                                {MONTH_NAMES.map((m, idx) => {
+                                  const nextM = MONTH_NAMES[(idx + 1) % 12];
+                                  return (
+                                    <option key={m} value={m}>
+                                      {m} {moveInDay} – {nextM} {moveInDay}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </div>
                           </div>
@@ -1840,7 +2001,7 @@ export default function BillingsPage() {
                         </div>
                         <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{cycleMonth} {cycleYear}</strong> (Standard monthly charge)</span>
+                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Standard monthly charge)</span>
                         </p>
                       </div>
                     )}
@@ -1852,7 +2013,7 @@ export default function BillingsPage() {
                         </label>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Quarter</label>
+                            <label className="block text-[10px] text-gray-500 mb-0.5">Quarter (Cycle Period)</label>
                             <div className="relative">
                               <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
                               <select
@@ -1860,9 +2021,17 @@ export default function BillingsPage() {
                                 onChange={(e) => handleQuarterChange(e.target.value)}
                                 className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
                               >
-                                {QUARTER_OPTIONS.map((q) => (
-                                  <option key={q.value} value={q.value}>{q.label}</option>
-                                ))}
+                                {QUARTER_OPTIONS.map((q) => {
+                                  const qNum = parseInt(q.value.replace(/\D/g, ""), 10) || 1;
+                                  const startMIdx = (qNum - 1) * 3;
+                                  const endMIdx = (startMIdx + 3) % 12;
+                                  const endYr = startMIdx + 3 >= 12 ? parseInt(cycleYear, 10) + 1 : parseInt(cycleYear, 10);
+                                  return (
+                                    <option key={q.value} value={q.value}>
+                                      {q.value} ({SHORT_MONTH_NAMES[startMIdx]} {moveInDay} – {SHORT_MONTH_NAMES[endMIdx]} {moveInDay}{startMIdx + 3 >= 12 ? ` ${endYr}` : ""})
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </div>
                           </div>
@@ -1881,7 +2050,7 @@ export default function BillingsPage() {
                         </div>
                         <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{cycleQuarter} {cycleYear}</strong> (Multiplied × 3 months)</span>
+                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Multiplied × 3 months)</span>
                         </p>
                       </div>
                     )}
@@ -1899,15 +2068,21 @@ export default function BillingsPage() {
                               onChange={(e) => handleYearChange(e.target.value)}
                               className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
                             >
-                              {availableYears.map((y) => (
-                                <option key={y} value={y}>Year {y}</option>
-                              ))}
+                              {availableYears.map((y) => {
+                                const yrNum = parseInt(y, 10);
+                                const mShort = SHORT_MONTH_NAMES[moveInMonthIndex] || "Jan";
+                                return (
+                                  <option key={y} value={y}>
+                                    {mShort} {moveInDay} {yrNum} – {mShort} {moveInDay} {yrNum + 1}
+                                  </option>
+                                );
+                              })}
                             </select>
                           </div>
                         </div>
                         <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{cycleYear}</strong> (Multiplied × 12 months)</span>
+                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Multiplied × 12 months)</span>
                         </p>
                       </div>
                     )}
@@ -2348,24 +2523,38 @@ export default function BillingsPage() {
 
                 {/* Due Date */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
-                    Calculated Due Date
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Payment Due Date *</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400">
+                      Select calendar date
+                    </span>
+                  </div>
                   <input
                     type="date"
                     value={formData.due_date}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const newDueDate = e.target.value;
                       setFormData((prev) => ({
                         ...prev,
-                        due_date: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                        due_date: newDueDate,
+                      }));
+                      triggerCalculation(
+                        formData.billing_type_id,
+                        formData.base_amount,
+                        newDueDate,
+                        undefined,
+                        formData.billing_cycle
+                      );
+                    }}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl bg-white text-sm font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
                     required
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Due date is automatically computed based on the selected
-                    Billing Type rule.
+                  <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-gray-400 shrink-0" />
+                    <span>Choose the payment deadline day for this billing.</span>
                   </p>
                 </div>
 
@@ -2605,7 +2794,7 @@ export default function BillingsPage() {
                     </div>
 
                     <div className="text-[11px] text-gray-500 flex justify-between bg-blue-50/50 p-2 rounded-lg">
-                      <span>Calculated Due Date:</span>
+                      <span>Payment Due Date:</span>
                       <span className="font-bold text-gray-900">
                         {formData.due_date}
                       </span>
@@ -2678,16 +2867,28 @@ export default function BillingsPage() {
               </div>
             </div>
 
-            {/* Automated Email & PDF Notice */}
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-blue-900">
-                <Mail className="w-4 h-4 text-blue-600" />
-                <span>Automated Email & PDF Statement Dispatch</span>
+            {/* Automated Email & PDF Notice or Direct Post Notice */}
+            {isValidTenantEmail(postingBilling.tenant_email) ? (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                  <span>Automated Email & PDF Statement Dispatch</span>
+                </div>
+                <p className="text-blue-700 leading-relaxed">
+                  Posting will automatically generate the official Statement of Account PDF (<code>Statement_Invoice_#{postingBilling.id}.pdf</code>) and email it directly to <strong>{postingBilling.tenant_email}</strong> with payment instructions.
+                </p>
               </div>
-              <p className="text-blue-700 leading-relaxed">
-                Posting will automatically generate the official Statement of Account PDF (<code>Statement_Invoice_#{postingBilling.id}.pdf</code>) and email it directly to <strong>{postingBilling.tenant_email || "the tenant"}</strong> with payment instructions.
-              </p>
-            </div>
+            ) : (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                  <Info className="w-4 h-4 text-amber-600" />
+                  <span>Direct Posting (No Email Required)</span>
+                </div>
+                <p className="text-amber-700 leading-relaxed">
+                  This tenant has no registered email address. No email will be sent — the bill will be posted directly to their account.
+                </p>
+              </div>
+            )}
 
             {/* Warning Message */}
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
@@ -2719,7 +2920,11 @@ export default function BillingsPage() {
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    <span>Confirm & Post Bill</span>
+                    <span>
+                      {isValidTenantEmail(postingBilling.tenant_email)
+                        ? "Confirm & Post Bill"
+                        : "Post Bill Directly"}
+                    </span>
                   </>
                 )}
               </button>
@@ -2736,7 +2941,7 @@ export default function BillingsPage() {
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-blue-400" />
                 <h3 className="text-base font-bold">
-                  Statement Invoice #{viewingBilling.id}
+                  Statement Invoice {viewingBilling.reference_number || formatBillingReference(viewingBilling.id)}
                 </h3>
               </div>
               <button
@@ -2766,7 +2971,15 @@ export default function BillingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-xl text-xs">
+                <div>
+                  <span className="text-gray-500 font-medium uppercase tracking-wider block">
+                    Ref No:
+                  </span>
+                  <p className="font-mono font-bold text-gray-900 text-sm mt-0.5">
+                    {viewingBilling.reference_number || formatBillingReference(viewingBilling.id)}
+                  </p>
+                </div>
                 <div>
                   <span className="text-gray-500 font-medium uppercase tracking-wider block">
                     Billed To:
@@ -2774,7 +2987,13 @@ export default function BillingsPage() {
                   <p className="font-bold text-gray-900 text-sm mt-0.5">
                     {viewingBilling.tenant_name}
                   </p>
-                  <p className="text-gray-600">{viewingBilling.tenant_email}</p>
+                  <p className="text-gray-600">
+                    {isValidTenantEmail(viewingBilling.tenant_email) ? (
+                      viewingBilling.tenant_email
+                    ) : (
+                      <span className="text-gray-400 italic">No email registered</span>
+                    )}
+                  </p>
                 </div>
                 <div>
                   <span className="text-gray-500 font-medium uppercase tracking-wider block">
@@ -2960,12 +3179,29 @@ export default function BillingsPage() {
                   </a>
                   {viewingBilling.status !== "draft" && (
                     <button
-                      onClick={() => handleSendStatementEmail(viewingBilling.id, viewingBilling.tenant_email)}
-                      disabled={sendingEmailId === viewingBilling.id}
-                      className="px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      onClick={() => {
+                        if (!isValidTenantEmail(viewingBilling.tenant_email)) {
+                          showToast("Tenant has no email address. Bill is posted directly without sending an email.", "error");
+                          return;
+                        }
+                        handleSendStatementEmail(viewingBilling.id, viewingBilling.tenant_email);
+                      }}
+                      disabled={sendingEmailId === viewingBilling.id || !isValidTenantEmail(viewingBilling.tenant_email)}
+                      className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-colors flex items-center gap-1.5 ${
+                        !isValidTenantEmail(viewingBilling.tenant_email)
+                          ? "text-gray-400 bg-gray-50 border-gray-200 cursor-not-allowed opacity-60"
+                          : "text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200 cursor-pointer"
+                      }`}
+                      title={isValidTenantEmail(viewingBilling.tenant_email) ? "Email Statement" : "Tenant has no email registered"}
                     >
                       <Mail className={`w-4 h-4 ${sendingEmailId === viewingBilling.id ? 'animate-spin' : ''}`} />
-                      <span>{sendingEmailId === viewingBilling.id ? 'Sending...' : 'Email Statement'}</span>
+                      <span>
+                        {sendingEmailId === viewingBilling.id
+                          ? 'Sending...'
+                          : isValidTenantEmail(viewingBilling.tenant_email)
+                            ? 'Email Statement'
+                            : 'No Email'}
+                      </span>
                     </button>
                   )}
                   <button

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
-import { sendBillingPostedNotification } from '@/lib/email';
+import { sendBillingPostedNotification, isValidTenantEmail } from '@/lib/email';
 import { getBillingById } from '@/lib/billingsStore';
 import { getAdminIdFromRequest } from '@/lib/auth';
 
@@ -21,7 +21,25 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Billing record not found or access denied' }, { status: 404 });
     }
 
+    const rawEmail = billing.tenant_email || billing.Tenant?.User?.email;
+    if (!isValidTenantEmail(rawEmail)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Tenant has no registered email. Bill is posted directly without sending an email.',
+        },
+        { status: 400 }
+      );
+    }
+
     const result = await sendBillingPostedNotification(id);
+    if (!result.success) {
+      return NextResponse.json(
+        { success: false, error: result.reason || 'Failed to dispatch statement email' },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: `Statement of account and PDF invoice dispatched to ${result.recipient}.`,

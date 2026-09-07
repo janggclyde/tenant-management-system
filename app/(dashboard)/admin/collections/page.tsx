@@ -12,11 +12,15 @@ import {
   CreditCard,
   Loader2,
   X,
-  DollarSign
+  DollarSign,
+  Repeat,
+  Calendar,
+  Hash
 } from 'lucide-react';
 import Link from 'next/link';
-import { BillingRecord } from '@/lib/billingsStore';
-import { CollectionRecord } from '@/lib/collectionsStore';
+import type { BillingRecord } from '@/lib/billingsStore';
+import type { CollectionRecord } from '@/lib/collectionsStore';
+import { formatBillingReference, formatCollectionReference, formatBillingCycle } from '@/lib/utils';
 
 export default function CollectionsPage() {
   const [activeTab, setActiveTab] = useState<'for_collection' | 'collected' | 'advanced'>('for_collection');
@@ -29,6 +33,7 @@ export default function CollectionsPage() {
   const [paymentModalBilling, setPaymentModalBilling] = useState<BillingRecord | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'qr'>('cash');
   const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [collectedDate, setCollectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -70,7 +75,12 @@ export default function CollectionsPage() {
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const refNo = b.reference_number || formatBillingReference(b.id);
+        const cycle = formatBillingCycle(b.billing_cycle || b.BillingType?.frequency);
         return (
+          refNo.toLowerCase().includes(q) ||
+          b.id.toString().includes(q) ||
+          cycle.toLowerCase().includes(q) ||
           b.tenant_name?.toLowerCase().includes(q) ||
           b.unit_number?.toLowerCase().includes(q) ||
           b.building_name?.toLowerCase().includes(q) ||
@@ -86,7 +96,14 @@ export default function CollectionsPage() {
     return collections.filter(c => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const refNo = c.reference_number || formatCollectionReference(c.id);
+        const invRef = c.billing_reference_number || formatBillingReference(c.billing_id);
+        const cycle = c.billing_cycle || 'Monthly';
         return (
+          refNo.toLowerCase().includes(q) ||
+          invRef.toLowerCase().includes(q) ||
+          cycle.toLowerCase().includes(q) ||
+          (c.collected_date && c.collected_date.includes(q)) ||
           c.tenant_name?.toLowerCase().includes(q) ||
           c.unit_number?.toLowerCase().includes(q) ||
           c.building_name?.toLowerCase().includes(q) ||
@@ -102,6 +119,7 @@ export default function CollectionsPage() {
     const balance = Math.max(0, billing.amount - (billing.amount_paid || 0));
     setPaymentAmount(balance.toString());
     setPaymentMethod('cash');
+    setCollectedDate(new Date().toISOString().split('T')[0]);
     setPaymentError(null);
   };
 
@@ -126,6 +144,7 @@ export default function CollectionsPage() {
           billing_id: paymentModalBilling.id,
           amount_paid: amt,
           payment_method: paymentMethod,
+          collected_date: collectedDate,
           status: 'completed',
         })
       });
@@ -240,8 +259,10 @@ export default function CollectionsPage() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Ref</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Unit / Tenant</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Billing Type</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Billing Cycle</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Due</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Due Date</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
@@ -254,11 +275,23 @@ export default function CollectionsPage() {
                     return (
                       <tr key={b.id} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="font-mono text-xs font-bold text-gray-900 bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 inline-flex items-center gap-1">
+                            <Hash className="w-3 h-3 text-gray-500" />
+                            {b.reference_number || formatBillingReference(b.id)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-bold text-gray-900">{b.unit_number || `Unit #${b.unit_id}`}</div>
                           <div className="text-xs text-gray-500">{b.tenant_name} • {b.building_name}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {b.billing_type_name || 'General Bill'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                            <Repeat className="w-3 h-3 text-blue-600" />
+                            {formatBillingCycle(b.billing_cycle || b.BillingType?.frequency)}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-extrabold text-gray-900">₱ {balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
@@ -307,8 +340,11 @@ export default function CollectionsPage() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Reference No.</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date Collected</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Ref</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tenant / Unit</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Billing Cycle</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Payment Method</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Collected</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
@@ -317,12 +353,37 @@ export default function CollectionsPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredCollections.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                        {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-mono text-xs font-bold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 inline-flex items-center gap-1.5 shadow-2xs">
+                          <Receipt className="w-3.5 h-3.5 text-blue-600" />
+                          {c.reference_number || formatCollectionReference(c.id)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-700 font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                          <span>
+                            {c.collected_date 
+                              ? new Date(c.collected_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                              : (c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-')}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-mono text-xs font-semibold text-gray-800 bg-gray-100 px-2.5 py-1 rounded-md border border-gray-200 inline-flex items-center gap-1">
+                          <Hash className="w-3 h-3 text-gray-400" />
+                          {c.billing_reference_number || formatBillingReference(c.billing_id)}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-bold text-gray-900">{c.tenant_name || 'Tenant'}</div>
                         <div className="text-xs text-gray-500">{c.unit_number} • {c.building_name}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200">
+                          <Repeat className="w-3 h-3 text-slate-500" />
+                          {c.billing_cycle || 'Monthly'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 capitalize">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800">
@@ -370,7 +431,9 @@ export default function CollectionsPage() {
             <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
               <div>
                 <h3 className="text-base font-bold text-gray-900">Record Payment</h3>
-                <p className="text-xs text-gray-500">Billing Invoice #{paymentModalBilling.id}</p>
+                <p className="text-xs text-gray-500">
+                  Billing Invoice {paymentModalBilling.reference_number || formatBillingReference(paymentModalBilling.id)}
+                </p>
               </div>
               <button 
                 onClick={() => setPaymentModalBilling(null)}
@@ -390,6 +453,12 @@ export default function CollectionsPage() {
 
               <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
                 <div className="flex justify-between">
+                  <span className="text-gray-500">Invoice Reference:</span>
+                  <span className="font-mono font-bold text-gray-900">
+                    {paymentModalBilling.reference_number || formatBillingReference(paymentModalBilling.id)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-gray-500">Tenant:</span>
                   <span className="font-bold text-gray-900">{paymentModalBilling.tenant_name}</span>
                 </div>
@@ -398,9 +467,28 @@ export default function CollectionsPage() {
                   <span className="font-bold text-gray-900">{paymentModalBilling.unit_number} ({paymentModalBilling.building_name})</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-gray-500">Billing Cycle:</span>
+                  <span className="font-semibold text-blue-700">
+                    {formatBillingCycle(paymentModalBilling.billing_cycle || paymentModalBilling.BillingType?.frequency)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
                   <span className="text-gray-500">Total Invoice:</span>
                   <span className="font-bold text-gray-900">₱ {paymentModalBilling.amount.toLocaleString()}</span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                  Date Collected *
+                </label>
+                <input
+                  type="date"
+                  value={collectedDate}
+                  onChange={(e) => setCollectedDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                />
               </div>
 
               <div>

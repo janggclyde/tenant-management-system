@@ -52,7 +52,6 @@ export default function TenantsPage() {
 
   // Form State
   const getDefaultMoveIn = () => new Date().toISOString().split('T')[0];
-  const getDefaultMoveOut = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -70,7 +69,7 @@ export default function TenantsPage() {
     setFormData(prev => ({
       ...prev,
       move_in_date: getDefaultMoveIn(),
-      move_out_date: getDefaultMoveOut()
+      move_out_date: ''
     }));
   }, []);
   const [formError, setFormError] = useState<string | null>(null);
@@ -133,7 +132,7 @@ export default function TenantsPage() {
       emergency_contact: '',
       unit_id: units[0] ? units[0].id.toString() : '',
       move_in_date: getDefaultMoveIn(),
-      move_out_date: getDefaultMoveOut(),
+      move_out_date: '',
       document_url: '',
       password: ''
     });
@@ -151,7 +150,7 @@ export default function TenantsPage() {
       emergency_contact: t.emergency_contact || '',
       unit_id: t.unit_id.toString(),
       move_in_date: t.move_in_date || getDefaultMoveIn(),
-      move_out_date: t.move_out_date || getDefaultMoveOut(),
+      move_out_date: t.move_out_date || '',
       document_url: t.document_url || '',
       password: ''
     });
@@ -196,7 +195,7 @@ export default function TenantsPage() {
             emergency_contact: formData.emergency_contact.trim(),
             unit_id: Number(formData.unit_id),
             move_in_date: formData.move_in_date,
-            move_out_date: formData.move_out_date
+            move_out_date: formData.move_out_date ? formData.move_out_date : null
           })
         });
         const data = await res.json();
@@ -213,7 +212,7 @@ export default function TenantsPage() {
             emergency_contact: formData.emergency_contact.trim(),
             unit_id: Number(formData.unit_id),
             move_in_date: formData.move_in_date,
-            move_out_date: formData.move_out_date,
+            move_out_date: formData.move_out_date ? formData.move_out_date : null,
             document_url: formData.document_url.trim(),
             password: formData.password
           })
@@ -664,13 +663,14 @@ export default function TenantsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Move-Out Date (Expiration)</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Move-Out Date (Optional / Indefinite)</label>
                     <input
                       type="date"
                       value={formData.move_out_date}
                       onChange={(e) => setFormData(prev => ({ ...prev, move_out_date: e.target.value }))}
                       className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     />
+                    <p className="text-[11px] text-gray-400 mt-1">Leave empty for open-ended or indefinite tenancy (default is null).</p>
                   </div>
                 </div>
 

@@ -19,20 +19,23 @@ export async function GET(request: NextRequest) {
     if (contracts && contracts.length > 0) {
       const formatted = contracts.map((c: any) => {
         const item = c.get({ plain: true });
+        const rawEmail = item.Tenant?.User?.email;
+        const cleanEmail = rawEmail && !rawEmail.endsWith('@noemail.local') ? rawEmail : '';
         const infoJson = item.Tenant?.personal_info_json;
         const name = infoJson?.first_name 
-          ? `${infoJson.first_name} ${infoJson.last_name || ''}`
-          : item.Tenant?.User?.email || `Tenant #${item.tenant_id}`;
+          ? `${infoJson.first_name} ${infoJson.last_name || ''}`.trim()
+          : (cleanEmail || `Tenant #${item.tenant_id}`);
 
         return {
           admin_id: item.admin_id,
           tenant_id: item.tenant_id,
           tenant_name: name,
-          tenant_email: item.Tenant?.User?.email || '',
+          tenant_email: cleanEmail,
           unit_id: item.unit_id,
           unit_number: item.Unit?.unit_number || `Unit #${item.unit_id}`,
           building_name: item.Unit?.Building?.name || 'Main Building',
           monthly_rent: Number(item.Unit?.monthly_rent || 0),
+          move_in_date: item.move_in_date || '',
         };
       });
 
@@ -53,6 +56,7 @@ export async function GET(request: NextRequest) {
           unit_number: t.unit_number || `Unit #${t.unit_id}`,
           building_name: t.building_name || 'Main Building',
           monthly_rent: Number(t.monthly_rent || 0),
+          move_in_date: t.move_in_date || '',
         }));
       if (formatted.length > 0) {
         return NextResponse.json({ success: true, tenantsUnits: formatted });

@@ -256,19 +256,33 @@ export function generateBillingEmailTemplate(billing: any, settings: any) {
   `;
 }
 
+export function isValidTenantEmail(email?: string | null): boolean {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim().toLowerCase();
+  return Boolean(trimmed && trimmed.includes("@") && !trimmed.endsWith("@noemail.local"));
+}
+
 export async function sendBillingPostedNotification(billingId: number) {
   const billing: any = await getBillingById(billingId);
   if (!billing) throw new Error(`Billing #${billingId} not found.`);
 
   const settings = await getSystemSettings();
-  const tenantEmail = billing.tenant_email || billing.Tenant?.User?.email;
+  const rawEmail = billing.tenant_email || billing.Tenant?.User?.email;
 
-  if (!tenantEmail || !tenantEmail.includes("@")) {
-    return { success: false, reason: "No valid recipient email" };
+  if (!isValidTenantEmail(rawEmail)) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "Tenant has no registered email. Bill posted directly without email notification.",
+    };
   }
+
+  const tenantEmail = rawEmail.trim();
+  const invRef = billing.reference_number || `IN-${String(billing.id).padStart(5, "0")}`;
 
   const pdfBuffer = await generateBillPDF({
     ...billing,
+    invoice_no: invRef,
     tenant_email: tenantEmail,
   });
   const htmlBody = generateBillingEmailTemplate(billing, settings);
@@ -290,7 +304,7 @@ export async function sendBillingPostedNotification(billingId: number) {
     `Your PDF statement is attached.\n\n` +
     `${settings.platform_name || "ApartManager"}`;
 
-  const filename = `billing-statement-${billing.id}.pdf`;
+  const filename = `billing-statement-${invRef}.pdf`;
 
   const result = await sendEmail({
     to: tenantEmail,

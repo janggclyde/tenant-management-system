@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       billing_id,
       amount_paid,
       payment_method,
+      collected_date,
       hitpay_reference,
       status,
       receipt_url
@@ -56,8 +57,9 @@ export async function POST(request: NextRequest) {
       billing_id: Number(billing_id),
       amount_paid: Number(amount_paid),
       payment_method,
+      collected_date: collected_date || new Date().toISOString().split('T')[0],
       hitpay_reference: hitpay_reference || undefined,
-      status: status || "pending",
+      status: status || "completed",
       receipt_url: receipt_url || undefined,
     });
 

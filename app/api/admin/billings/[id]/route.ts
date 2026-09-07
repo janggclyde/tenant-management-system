@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBillingById, updateBilling, deleteBilling } from '@/lib/billingsStore';
-import { sendBillingPostedNotification } from '@/lib/email';
+import { sendBillingPostedNotification, isValidTenantEmail } from '@/lib/email';
 import { getAdminIdFromRequest } from '@/lib/auth';
 
 export async function GET(
@@ -49,13 +49,25 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Billing record not found or access denied' }, { status: 404 });
     }
 
-    // When a billing statement is published / posted, dispatch email with receipt PDF attached
+    // When a billing statement is published / posted, dispatch email if tenant has a valid email;
+    // if tenant has no email, no need to send an email, just post the bill directly.
     let emailNotification = null;
     if (body.status === 'posted') {
-      try {
-        emailNotification = await sendBillingPostedNotification(id);
-      } catch (err: any) {
-        console.warn(`[Billing API] Warning dispatching email for billing #${id}:`, err.message);
+      const tenantEmail = updated.tenant_email || (await getBillingById(id, adminId))?.tenant_email;
+      if (isValidTenantEmail(tenantEmail)) {
+        try {
+          emailNotification = await sendBillingPostedNotification(id);
+        } catch (err: any) {
+          console.warn(`[Billing API] Warning dispatching email for billing #${id}:`, err.message);
+          emailNotification = { success: false, error: err.message };
+        }
+      } else {
+        // Tenant has no email: post the bill directly without dispatching email
+        emailNotification = {
+          success: false,
+          skipped: true,
+          reason: 'Tenant has no email address. Bill posted directly.'
+        };
       }
     }
 
