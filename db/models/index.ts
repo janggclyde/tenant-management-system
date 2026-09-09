@@ -146,13 +146,15 @@ export const Collection = sequelize.define("Collection", {
   billing_id: { type: DataTypes.INTEGER, allowNull: false },
   amount_paid: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   payment_method: {
-    type: DataTypes.ENUM("gcash", "qr", "cash"),
+    type: DataTypes.STRING,
     allowNull: false,
   },
+  bank_name: { type: DataTypes.STRING, allowNull: true },
+  payment_reference: { type: DataTypes.STRING, allowNull: true },
   collected_date: { type: DataTypes.DATEONLY, allowNull: true },
   hitpay_reference: { type: DataTypes.STRING, allowNull: true },
   status: { type: DataTypes.STRING, defaultValue: "pending" },
-  receipt_url: { type: DataTypes.STRING, allowNull: true },
+  receipt_url: { type: DataTypes.TEXT, allowNull: true },
 });
 
 export const AdvancedPayment = sequelize.define("AdvancedPayment", {
@@ -337,6 +339,32 @@ export async function syncDatabase() {
         if (!cols || cols.length === 0) {
           await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `collected_date` DATE NULL");
         }
+      } catch (colErr) {
+        // Ignore column check fallback
+      }
+      try {
+        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'bank_name'");
+        if (!cols || cols.length === 0) {
+          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `bank_name` VARCHAR(255) NULL");
+        }
+      } catch (colErr) {
+        // Ignore column check fallback
+      }
+      try {
+        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'payment_reference'");
+        if (!cols || cols.length === 0) {
+          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `payment_reference` VARCHAR(255) NULL");
+        }
+      } catch (colErr) {
+        // Ignore column check fallback
+      }
+      try {
+        await sequelize.query("ALTER TABLE `Collections` MODIFY COLUMN `payment_method` VARCHAR(50) NOT NULL");
+      } catch (colErr) {
+        // Ignore column check fallback
+      }
+      try {
+        await sequelize.query("ALTER TABLE `Collections` MODIFY COLUMN `receipt_url` TEXT NULL");
       } catch (colErr) {
         // Ignore column check fallback
       }

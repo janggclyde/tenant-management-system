@@ -16,7 +16,9 @@ export interface CollectionRecord {
   admin_id: number;
   billing_id: number;
   amount_paid: number;
-  payment_method: 'gcash' | 'qr' | 'cash';
+  payment_method: 'gcash' | 'qr' | 'cash' | 'bank_transfer';
+  bank_name?: string;
+  payment_reference?: string;
   hitpay_reference?: string;
   status: 'pending' | 'completed' | 'failed';
   receipt_url?: string;
@@ -90,6 +92,9 @@ export async function getCollectionsList(options: { query?: string; status?: str
       unit_number: item.Billing?.Unit?.unit_number || '',
       building_name: item.Billing?.Unit?.Building?.name || '',
       billing_type_name: item.Billing?.BillingType?.name || 'General Bill',
+      bank_name: item.bank_name || undefined,
+      payment_reference: item.payment_reference || item.hitpay_reference || undefined,
+      receipt_url: item.receipt_url || undefined,
     } as CollectionRecord;
   });
 
@@ -101,6 +106,8 @@ export async function getCollectionsList(options: { query?: string; status?: str
       (r.billing_cycle && r.billing_cycle.toLowerCase().includes(q)) ||
       (r.tenant_name && r.tenant_name.toLowerCase().includes(q)) ||
       (r.tenant_email && r.tenant_email.toLowerCase().includes(q)) ||
+      (r.bank_name && r.bank_name.toLowerCase().includes(q)) ||
+      (r.payment_reference && r.payment_reference.toLowerCase().includes(q)) ||
       (r.hitpay_reference && r.hitpay_reference.toLowerCase().includes(q)) ||
       (r.unit_number && r.unit_number.toLowerCase().includes(q))
     );
@@ -154,6 +161,9 @@ export async function getCollectionById(id: number, admin_id?: number) {
     unit_number: item.Billing?.Unit?.unit_number || '',
     building_name: item.Billing?.Unit?.Building?.name || '',
     billing_type_name: item.Billing?.BillingType?.name || 'General Bill',
+    bank_name: item.bank_name || undefined,
+    payment_reference: item.payment_reference || item.hitpay_reference || undefined,
+    receipt_url: item.receipt_url || undefined,
   } as CollectionRecord;
 }
 

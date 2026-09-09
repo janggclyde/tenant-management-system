@@ -29,6 +29,9 @@ export async function POST(request: NextRequest) {
       amount_paid,
       payment_method,
       collected_date,
+      bank_name,
+      payment_reference,
+      reference_number,
       hitpay_reference,
       status,
       receipt_url
@@ -52,15 +55,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (payment_method === "bank_transfer" && (!bank_name || !bank_name.trim())) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Bank name or E-Wallet is required for bank transfer payments.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const finalReference = payment_reference || reference_number || hitpay_reference || undefined;
+
     const newCollection = await createCollection({
       admin_id: adminId,
       billing_id: Number(billing_id),
       amount_paid: Number(amount_paid),
       payment_method,
+      bank_name: bank_name ? bank_name.trim() : undefined,
+      payment_reference: finalReference,
+      hitpay_reference: finalReference,
       collected_date: collected_date || new Date().toISOString().split('T')[0],
-      hitpay_reference: hitpay_reference || undefined,
       status: status || "completed",
-      receipt_url: receipt_url || undefined,
+      receipt_url: receipt_url ? receipt_url.trim() : undefined,
     });
 
     return NextResponse.json(

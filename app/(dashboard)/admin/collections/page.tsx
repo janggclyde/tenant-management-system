@@ -15,12 +15,20 @@ import {
   DollarSign,
   Repeat,
   Calendar,
-  Hash
+  Hash,
+  Building2,
+  ImageIcon,
+  ExternalLink,
+  Eye
 } from 'lucide-react';
 import Link from 'next/link';
 import type { BillingRecord } from '@/lib/billingsStore';
 import type { CollectionRecord } from '@/lib/collectionsStore';
 import { formatBillingReference, formatCollectionReference, formatBillingCycle } from '@/lib/utils';
+
+const POPULAR_BANKS_EWALLETS = [
+  "BDO", "BPI", "GCash", "Maya", "UnionBank", "Metrobank", "Landbank", "GoTyme", "SeaBank"
+];
 
 export default function CollectionsPage() {
   const [activeTab, setActiveTab] = useState<'for_collection' | 'collected' | 'advanced'>('for_collection');
@@ -31,12 +39,19 @@ export default function CollectionsPage() {
 
   // Payment Modal State
   const [paymentModalBilling, setPaymentModalBilling] = useState<BillingRecord | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'qr'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'qr' | 'bank_transfer'>('cash');
+  const [bankName, setBankName] = useState<string>('');
+  const [referenceNumber, setReferenceNumber] = useState<string>('');
+  const [receiptUrl, setReceiptUrl] = useState<string>('');
+  const [imageError, setImageError] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState<string>('');
   const [collectedDate, setCollectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Full Image Preview Modal State
+  const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -107,6 +122,8 @@ export default function CollectionsPage() {
           c.tenant_name?.toLowerCase().includes(q) ||
           c.unit_number?.toLowerCase().includes(q) ||
           c.building_name?.toLowerCase().includes(q) ||
+          (c.bank_name && c.bank_name.toLowerCase().includes(q)) ||
+          (c.payment_reference && c.payment_reference.toLowerCase().includes(q)) ||
           c.hitpay_reference?.toLowerCase().includes(q)
         );
       }
@@ -119,6 +136,10 @@ export default function CollectionsPage() {
     const balance = Math.max(0, billing.amount - (billing.amount_paid || 0));
     setPaymentAmount(balance.toString());
     setPaymentMethod('cash');
+    setBankName('');
+    setReferenceNumber('');
+    setReceiptUrl('');
+    setImageError(false);
     setCollectedDate(new Date().toISOString().split('T')[0]);
     setPaymentError(null);
   };
@@ -133,6 +154,11 @@ export default function CollectionsPage() {
       return;
     }
 
+    if (paymentMethod === 'bank_transfer' && !bankName.trim()) {
+      setPaymentError('Please enter the Bank name or E-Wallet used for the transfer.');
+      return;
+    }
+
     setPaymentSubmitting(true);
     setPaymentError(null);
 
@@ -144,6 +170,10 @@ export default function CollectionsPage() {
           billing_id: paymentModalBilling.id,
           amount_paid: amt,
           payment_method: paymentMethod,
+          bank_name: paymentMethod === 'bank_transfer' ? bankName.trim() : undefined,
+          reference_number: paymentMethod === 'bank_transfer' && referenceNumber.trim() ? referenceNumber.trim() : undefined,
+          payment_reference: paymentMethod === 'bank_transfer' && referenceNumber.trim() ? referenceNumber.trim() : undefined,
+          receipt_url: paymentMethod === 'bank_transfer' && receiptUrl.trim() ? receiptUrl.trim() : undefined,
           collected_date: collectedDate,
           status: 'completed',
         })
@@ -348,6 +378,7 @@ export default function CollectionsPage() {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Payment Method</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Collected</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Receipt Proof</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -381,14 +412,33 @@ export default function CollectionsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200">
-                          <Repeat className="w-3 h-3 text-slate-500" />
+                          <Repeat className="w-3.5 h-3.5 text-slate-500" />
                           {c.billing_cycle || 'Monthly'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 capitalize">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800">
-                          {c.payment_method}
-                        </span>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {c.payment_method === 'bank_transfer' ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                              <Building2 className="w-3 h-3 text-blue-600" />
+                              Bank Transfer
+                            </span>
+                            {c.bank_name && (
+                              <div className="text-xs font-bold text-gray-900">
+                                {c.bank_name}
+                              </div>
+                            )}
+                            {c.payment_reference && (
+                              <div className="text-[11px] text-gray-500 font-mono">
+                                Ref: {c.payment_reference}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800 uppercase">
+                            {c.payment_method === 'gcash' ? 'GCash' : c.payment_method === 'qr' ? 'QR Ph' : 'Cash'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-emerald-700">
                         ₱ {Number(c.amount_paid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -398,6 +448,21 @@ export default function CollectionsPage() {
                           <CheckCircle2 className="w-3 h-3 mr-1" />
                           Completed
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                        {c.receipt_url ? (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewReceiptUrl(c.receipt_url!)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-semibold transition-colors shadow-2xs cursor-pointer"
+                            title="Click to view full image receipt"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-blue-600" />
+                            <span>View Proof</span>
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 text-xs italic">None</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -427,8 +492,8 @@ export default function CollectionsPage() {
       {/* Record Payment Modal */}
       {paymentModalBilling && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-gray-200">
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-gray-200 max-h-[92vh] flex flex-col">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
               <div>
                 <h3 className="text-base font-bold text-gray-900">Record Payment</h3>
                 <p className="text-xs text-gray-500">
@@ -437,13 +502,13 @@ export default function CollectionsPage() {
               </div>
               <button 
                 onClick={() => setPaymentModalBilling(null)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleRecordPayment} className="p-6 space-y-4">
+            <form onSubmit={handleRecordPayment} className="p-6 space-y-4 overflow-y-auto">
               {paymentError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -515,33 +580,225 @@ export default function CollectionsPage() {
                 </label>
                 <select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  onChange={(e) => {
+                    setPaymentMethod(e.target.value as any);
+                    setImageError(false);
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
                 >
                   <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank Transfer / E-Wallet</option>
                   <option value="gcash">GCash</option>
-                  <option value="qr">Bank / QR Ph</option>
+                  <option value="qr">QR Ph</option>
                 </select>
               </div>
+
+              {/* Dynamic Bank Transfer / E-Wallet Details */}
+              {paymentMethod === 'bank_transfer' && (
+                <div className="p-4 bg-gradient-to-br from-blue-50/70 via-slate-50 to-indigo-50/60 border border-blue-200 rounded-xl space-y-3.5 shadow-2xs">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 uppercase tracking-wide">
+                    <Building2 className="w-4 h-4 text-blue-600" />
+                    <span>Bank Transfer / E-Wallet Details</span>
+                  </div>
+
+                  {/* Bank / E-Wallet Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Bank Name or E-Wallet *
+                    </label>
+                    <input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="e.g. BDO, BPI, GCash, Maya, UnionBank..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                      required={paymentMethod === 'bank_transfer'}
+                    />
+                    {/* Quick suggestion tags */}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {POPULAR_BANKS_EWALLETS.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => setBankName(name)}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-medium border transition-colors cursor-pointer ${
+                            bankName.toLowerCase() === name.toLowerCase()
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700'
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Reference Number (Optional) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Reference Number
+                      </label>
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                        Optional
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Hash className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-3 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={referenceNumber}
+                        onChange={(e) => setReferenceNumber(e.target.value)}
+                        placeholder="e.g. 123456789012 or TRN-87654321"
+                        className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Image Field: Link to Image with Live Display in Form */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Receipt / Proof Image Link</span>
+                      </label>
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                        Optional Link
+                      </span>
+                    </div>
+                    <input
+                      type="url"
+                      value={receiptUrl}
+                      onChange={(e) => {
+                        setReceiptUrl(e.target.value);
+                        setImageError(false);
+                      }}
+                      placeholder="https://example.com/receipt.jpg or paste image link"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                    />
+
+                    {/* Image Preview Box displayed directly in the form */}
+                    {receiptUrl.trim() ? (
+                      <div className="mt-2.5 p-2.5 bg-white border border-blue-200 rounded-xl shadow-2xs space-y-1.5">
+                        <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-gray-700">
+                          <span className="flex items-center gap-1 text-blue-700 font-bold">
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            Receipt Image Preview
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={receiptUrl.trim()}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-[11px] hover:underline inline-flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open link
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReceiptUrl('');
+                                setImageError(false);
+                              }}
+                              className="text-red-500 hover:text-red-700 text-[11px] font-medium cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="relative rounded-lg overflow-hidden bg-gray-50 border border-gray-200 flex items-center justify-center min-h-[120px] max-h-[220px] p-2">
+                          {imageError ? (
+                            <div className="p-4 text-center text-xs text-amber-800 flex flex-col items-center gap-1.5">
+                              <AlertCircle className="w-5 h-5 text-amber-500" />
+                              <span className="font-semibold">Unable to load image preview</span>
+                              <span className="text-[11px] text-amber-600">Please check that the URL is a direct link to an image file.</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={receiptUrl.trim()}
+                              alt="Proof of payment preview"
+                              onError={() => setImageError(true)}
+                              className="max-h-[200px] w-auto max-w-full object-contain rounded-md shadow-xs"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-gray-400 italic">
+                        Paste an image link above to display the proof of payment receipt in this form.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="pt-3 flex justify-end gap-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setPaymentModalBilling(null)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={paymentSubmitting}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   {paymentSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>Confirm Payment</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Full Receipt Image Viewer Modal */}
+      {previewReceiptUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-gray-200">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-gray-900">Proof of Payment Receipt</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewReceiptUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1 hover:underline"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Full Resolution</span>
+                </a>
+                <button
+                  onClick={() => setPreviewReceiptUrl(null)}
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-900/5 flex items-center justify-center max-h-[70vh] overflow-auto">
+              <img
+                src={previewReceiptUrl}
+                alt="Receipt Full Preview"
+                className="max-h-[65vh] w-auto max-w-full object-contain rounded-lg shadow-md"
+              />
+            </div>
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPreviewReceiptUrl(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
