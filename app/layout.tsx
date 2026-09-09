@@ -3,8 +3,8 @@ import './globals.css'; // Global styles
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 
 export const metadata: Metadata = {
-  title: 'Apartment SaaS',
-  description: 'Manage your apartments and tenants.',
+  title: 'Sylvia | Intelligent Property Management',
+  description: 'Next-generation real estate and tenant management platform.',
   manifest: '/manifest.json',
 };
 

@@ -63,7 +63,12 @@ export default function DashboardShell({
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between bg-white border-b border-gray-200 px-4 py-3">
-        <span className="text-xl font-bold text-gray-900">App</span>
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <span className="text-lg font-bold text-gray-900 tracking-tight">Sylvia</span>
+        </div>
         <button onClick={() => setSidebarOpen(true)} className="text-gray-600">
           <Menu size={24} />
         </button>
@@ -78,23 +83,34 @@ export default function DashboardShell({
       )}
 
       {/* Sidebar */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out flex flex-col
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 h-screen max-h-screen bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out flex flex-col
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:relative md:translate-x-0
+        md:sticky md:top-0 md:left-0 md:h-screen md:max-h-screen md:w-64 md:flex-shrink-0 md:self-start md:translate-x-0 md:z-30
       `}>
-        <div className="p-6 flex items-center justify-between">
-          <span className="text-xl font-bold text-blue-600">
-            {role === 'super_admin' ? 'SuperAdmin' : role === 'admin' ? 'PropertyManager' : 'TenantPortal'}
-          </span>
-          <button className="md:hidden text-gray-600" onClick={() => setSidebarOpen(false)}>
+        <div className="flex-shrink-0 p-5 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+              <Building2 className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div>
+              <span className="text-lg font-bold text-gray-900 tracking-tight block leading-tight">Sylvia</span>
+              <span className="text-[10px] font-semibold text-blue-600 tracking-wider uppercase">
+                {role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Property Manager' : 'Resident Portal'}
+              </span>
+            </div>
+          </div>
+          <button className="md:hidden text-gray-600 hover:text-gray-900" onClick={() => setSidebarOpen(false)}>
             <X size={24} />
           </button>
         </div>
         
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-4 py-3 space-y-1 overflow-y-auto min-h-0">
           {links.map((link) => {
-            const isActive = pathname === link.href || pathname.startsWith(link.href + '/');
+            const isDashboardLink = link.name === 'Dashboard' || ['/admin', '/super-admin', '/tenant'].includes(link.href);
+            const isActive = isDashboardLink 
+              ? pathname === link.href 
+              : pathname === link.href || pathname.startsWith(link.href + '/');
             const Icon = link.icon;
             return (
               <Link
@@ -113,19 +129,19 @@ export default function DashboardShell({
           })}
         </nav>
         
-        <div className="p-4 border-t border-gray-200">
+        <div className="flex-shrink-0 p-4 border-t border-gray-200 bg-white">
           <button 
             onClick={handleLogout}
-            className="flex items-center w-full px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center w-full px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <LogOut className="mr-3 h-5 w-5 text-gray-400" />
             Sign Out
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-w-0 bg-gray-50">
         {children}
       </main>
     </div>

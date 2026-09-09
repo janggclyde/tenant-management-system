@@ -1,1 +1,108 @@
 @import "tailwindcss";
+
+@keyframes windowGlow {
+  0% {
+    fill: #334155;
+    opacity: 0.4;
+  }
+  50% {
+    fill: #fef08a;
+    opacity: 0.85;
+  }
+  100% {
+    fill: #fbbf24;
+    opacity: 1;
+  }
+}
+
+@keyframes elevatorGlide {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-64px);
+  }
+}
+
+@keyframes keyUnlockMotion {
+  0% {
+    transform: translateY(-10px) scale(0.85) rotate(0deg);
+    opacity: 0.3;
+  }
+  35% {
+    transform: translateY(0px) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  65% {
+    transform: translateY(0px) scale(1) rotate(90deg);
+    opacity: 1;
+  }
+  85% {
+    transform: translateY(0px) scale(1.08) rotate(90deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0px) scale(1) rotate(90deg);
+    opacity: 1;
+  }
+}
+
+@keyframes doorRipple {
+  0% {
+    r: 3;
+    opacity: 0.9;
+    stroke-width: 2;
+  }
+  100% {
+    r: 38;
+    opacity: 0;
+    stroke-width: 0.5;
+  }
+}
+
+@keyframes scanLine {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.6;
+  }
+  75% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(220%);
+    opacity: 0;
+  }
+}
+
+@keyframes antennaBeacon {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes shimmerGlow {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes cardShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.animate-card-shake {
+  animation: cardShake 0.45s ease-in-out;
+}

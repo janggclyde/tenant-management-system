@@ -1,6 +1,6 @@
 {
-  "name": "Apartment SaaS",
-  "description": "Property management for tenants and admins",
+  "name": "Sylvia",
+  "description": "Intelligent property and tenant management",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

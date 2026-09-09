@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aptsaas-cache-v1';
+const CACHE_NAME = 'sylvia-cache-v1';
 const urlsToCache = [
   '/',
   '/login',
