@@ -28,10 +28,7 @@ export default function RealEstateLoader({
       <div 
         className="absolute inset-0 opacity-[0.12] pointer-events-none"
         style={{
-          backgroundImage: `
-            linear-gradient(to right, rgba(56, 189, 248, 0.3) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(56, 189, 248, 0.3) 1px, transparent 1px)
-          `,
+          backgroundImage: 'linear-gradient(to right, rgba(56, 189, 248, 0.3) 1px, transparent 1px), linear-gradient(to bottom, rgba(56, 189, 248, 0.3) 1px, transparent 1px)',
           backgroundSize: '36px 36px',
         }}
       />
@@ -72,10 +69,7 @@ export default function RealEstateLoader({
         <div 
           className="absolute inset-0 opacity-20 pointer-events-none"
           style={{
-            backgroundImage: `
-              linear-gradient(to right, rgba(56, 189, 248, 0.25) 1px, transparent 1px),
-              linear-gradient(to bottom, rgba(56, 189, 248, 0.25) 1px, transparent 1px)
-            `,
+            backgroundImage: 'linear-gradient(to right, rgba(56, 189, 248, 0.25) 1px, transparent 1px), linear-gradient(to bottom, rgba(56, 189, 248, 0.25) 1px, transparent 1px)',
             backgroundSize: '24px 24px',
           }}
         />

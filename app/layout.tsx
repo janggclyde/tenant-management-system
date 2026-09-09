@@ -1,4 +1,4 @@
-import type {Metadata} from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css'; // Global styles
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 
@@ -8,12 +8,13 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
 };
 
+export const viewport: Viewport = {
+  themeColor: '#3b82f6',
+};
+
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
-    <html lang="en">
-      <head>
-        <meta name="theme-color" content="#3b82f6" />
-      </head>
+    <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <ServiceWorkerRegistration />
         {children}

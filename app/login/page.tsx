@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Building2, 
@@ -30,9 +30,9 @@ export default function LoginPage() {
 
   // Cycle status messages while loading for realistic proptech telemetry
   useEffect(() => {
-    let timer1: NodeJS.Timeout;
-    let timer2: NodeJS.Timeout;
-    let timer3: NodeJS.Timeout;
+    let timer1: ReturnType<typeof setTimeout> | undefined;
+    let timer2: ReturnType<typeof setTimeout> | undefined;
+    let timer3: ReturnType<typeof setTimeout> | undefined;
 
     if (isLoading && !isSuccess) {
       setLoaderStatus("Scanning Sylvia property directory...");
@@ -51,9 +51,9 @@ export default function LoginPage() {
     }
 
     return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
+      if (timer1) clearTimeout(timer1);
+      if (timer2) clearTimeout(timer2);
+      if (timer3) clearTimeout(timer3);
     };
   }, [isLoading, isSuccess]);
 
@@ -133,10 +133,7 @@ export default function LoginPage() {
         <div 
           className="absolute inset-0 opacity-[0.07] pointer-events-none"
           style={{
-            backgroundImage: `
-              linear-gradient(to right, #38bdf8 1px, transparent 1px),
-              linear-gradient(to bottom, #38bdf8 1px, transparent 1px)
-            `,
+            backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
             backgroundSize: '40px 40px',
           }}
         />
