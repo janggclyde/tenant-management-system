@@ -19,7 +19,13 @@ import {
   Building2,
   ImageIcon,
   ExternalLink,
-  Eye
+  Eye,
+  FileText,
+  Printer,
+  Copy,
+  Check,
+  User,
+  ArrowUpRight
 } from 'lucide-react';
 import Link from 'next/link';
 import type { BillingRecord } from '@/lib/billingsStore';
@@ -52,6 +58,24 @@ export default function CollectionsPage() {
 
   // Full Image Preview Modal State
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
+
+  // View Collection Record Modal State
+  const [viewingCollection, setViewingCollection] = useState<CollectionRecord | null>(null);
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedRef(key);
+      setTimeout(() => setCopiedRef(null), 2000);
+    }
+  };
+
+  const handlePrint = () => {
+    if (typeof window !== 'undefined') {
+      window.print();
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -184,6 +208,7 @@ export default function CollectionsPage() {
       setPaymentModalBilling(null);
       showToast(`Payment of ₱${amt.toLocaleString()} recorded successfully!`);
       fetchData();
+      setActiveTab('collected');
     } catch (err: any) {
       setPaymentError(err.message || 'Error recording payment.');
     } finally {
@@ -379,16 +404,22 @@ export default function CollectionsPage() {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount Collected</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Receipt Proof</th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredCollections.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50/60 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="font-mono text-xs font-bold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 inline-flex items-center gap-1.5 shadow-2xs">
-                          <Receipt className="w-3.5 h-3.5 text-blue-600" />
-                          {c.reference_number || formatCollectionReference(c.id)}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setViewingCollection(c)}
+                          className="font-mono text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 px-2.5 py-1 rounded-lg border border-blue-200 inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer group"
+                          title="Click to view full collection form"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
+                          <span>{c.reference_number || formatCollectionReference(c.id)}</span>
+                        </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-700 font-medium">
                         <div className="flex items-center gap-1.5">
@@ -463,6 +494,17 @@ export default function CollectionsPage() {
                         ) : (
                           <span className="text-gray-400 text-xs italic">None</span>
                         )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-medium">
+                        <button
+                          type="button"
+                          onClick={() => setViewingCollection(c)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-xl border border-blue-200 transition-colors shadow-2xs cursor-pointer"
+                          title="View Collection Receipt Form"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-blue-600" />
+                          <span>View Form</span>
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -802,6 +844,403 @@ export default function CollectionsPage() {
           </div>
         </div>
       )}
+
+      {/* Collection Receipt View Form Modal */}
+      {viewingCollection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div
+            id="printable-collection-receipt-container"
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-gray-200 max-h-[92vh] flex flex-col"
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/30 border border-blue-400/30 flex items-center justify-center">
+                  <Receipt className="w-5 h-5 text-blue-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">Collection Receipt Form</h3>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Paid & Verified
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Official payment record voucher • Reference {viewingCollection.reference_number || formatCollectionReference(viewingCollection.id)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 no-print">
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Print Collection Receipt"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-300" />
+                  <span>Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingCollection(null)}
+                  className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Receipt Body */}
+            <div className="p-6 space-y-5 overflow-y-auto">
+              {/* Receipt Top Amount & Reference Banner */}
+              <div className="p-5 bg-linear-to-br from-blue-50 via-indigo-50/40 to-slate-50 rounded-2xl border border-blue-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                  <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
+                    Total Amount Collected
+                  </span>
+                  <div className="text-3xl font-black text-gray-900 mt-0.5">
+                    ₱ {Number(viewingCollection.amount_paid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="font-mono text-xs font-semibold text-gray-700 bg-white/90 px-2.5 py-1 rounded-md border border-gray-200 inline-flex items-center gap-1 shadow-2xs">
+                      <Hash className="w-3 h-3 text-gray-400" />
+                      {viewingCollection.reference_number || formatCollectionReference(viewingCollection.id)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(viewingCollection.reference_number || formatCollectionReference(viewingCollection.id), 'col-ref')}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1 cursor-pointer no-print"
+                      title="Copy Reference Number"
+                    >
+                      {copiedRef === 'col-ref' ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-600 font-semibold">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-gray-400" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="sm:text-right space-y-1 sm:border-l sm:border-blue-100 sm:pl-6">
+                  <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                    Collection Date
+                  </div>
+                  <div className="text-sm font-bold text-gray-900 flex items-center sm:justify-end gap-1.5">
+                    <Calendar className="w-4 h-4 text-blue-600" />
+                    {viewingCollection.collected_date 
+                      ? new Date(viewingCollection.collected_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                      : (viewingCollection.createdAt ? new Date(viewingCollection.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '-')}
+                  </div>
+                  <div className="text-xs text-gray-600 font-medium">
+                    Payment Method:{' '}
+                    <span className="font-bold text-gray-800 uppercase">
+                      {viewingCollection.payment_method === 'bank_transfer'
+                        ? 'Bank Transfer'
+                        : viewingCollection.payment_method === 'gcash'
+                        ? 'GCash'
+                        : viewingCollection.payment_method === 'qr'
+                        ? 'QR Ph'
+                        : 'Cash'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid: Tenant/Unit & Linked Invoice */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Tenant & Property Card */}
+                <div className="p-4 bg-gray-50/80 rounded-xl border border-gray-200/80 space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b border-gray-200 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <User className="w-4 h-4 text-blue-600" />
+                    <span>Tenant & Property</span>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <span className="text-gray-500 block">Tenant Name</span>
+                      <span className="font-bold text-sm text-gray-900">
+                        {viewingCollection.tenant_name || 'Tenant'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Email Address</span>
+                      <span className="font-medium text-gray-700">
+                        {viewingCollection.tenant_email || 'No email on record'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Unit & Building</span>
+                      <div className="flex items-center gap-1.5 font-semibold text-gray-800">
+                        <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Unit {viewingCollection.unit_number || 'N/A'}</span>
+                        <span className="text-gray-400">•</span>
+                        <span>{viewingCollection.building_name || 'Building'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Linked Invoice Card */}
+                <div className="p-4 bg-gray-50/80 rounded-xl border border-gray-200/80 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <div className="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      <span>Linked Invoice</span>
+                    </div>
+                    <a
+                      href={`/api/admin/billings/${viewingCollection.billing_id}/pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1 hover:underline no-print"
+                    >
+                      <span>View Statement PDF</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <span className="text-gray-500 block">Invoice Reference</span>
+                      <span className="font-mono font-bold text-sm text-gray-900">
+                        {viewingCollection.billing_reference_number || formatBillingReference(viewingCollection.billing_id)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Billing Category</span>
+                      <span className="font-medium text-gray-800">
+                        {viewingCollection.billing_type_name || 'General Bill'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Billing Cycle</span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                        <Repeat className="w-3 h-3 text-blue-600" />
+                        {viewingCollection.billing_cycle || 'Monthly'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Method & Transaction Breakdown */}
+              <div className="p-4 bg-white rounded-xl border border-gray-200 space-y-3 shadow-2xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-200 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  <CreditCard className="w-4 h-4 text-blue-600" />
+                  <span>Payment & Channel Details</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <span className="text-gray-500 block">Payment Method</span>
+                    <div className="mt-1">
+                      {viewingCollection.payment_method === 'bank_transfer' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                          <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                          Bank Transfer / E-Wallet
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-800 uppercase">
+                          {viewingCollection.payment_method === 'gcash'
+                            ? 'GCash E-Wallet'
+                            : viewingCollection.payment_method === 'qr'
+                            ? 'QR Ph'
+                            : 'Cash Payment'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {viewingCollection.payment_method === 'bank_transfer' && (
+                    <div>
+                      <span className="text-gray-500 block">Bank / E-Wallet Used</span>
+                      <div className="font-bold text-sm text-gray-900 mt-1">
+                        {viewingCollection.bank_name || 'Not specified'}
+                      </div>
+                    </div>
+                  )}
+
+                  {viewingCollection.payment_method === 'bank_transfer' && viewingCollection.payment_reference && (
+                    <div className="sm:col-span-2">
+                      <span className="text-gray-500 block">Transaction Reference Number</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="font-mono text-xs font-bold text-gray-900 bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200">
+                          {viewingCollection.payment_reference}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(viewingCollection.payment_reference!, 'pay-ref')}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1 cursor-pointer no-print"
+                          title="Copy Payment Reference"
+                        >
+                          {copiedRef === 'pay-ref' ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span className="text-emerald-600 font-semibold">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 text-gray-400" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <span className="text-gray-500 block">Transaction Status</span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 mt-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Completed
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-gray-500 block">Recorded In System</span>
+                    <span className="text-xs font-medium text-gray-700 mt-1 block">
+                      {viewingCollection.createdAt
+                        ? new Date(viewingCollection.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+                        : viewingCollection.collected_date}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Proof of Payment Section */}
+              <div className="p-4 bg-white rounded-xl border border-gray-200 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                  <div className="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    <ImageIcon className="w-4 h-4 text-blue-600" />
+                    <span>Receipt / Proof of Payment Attachment</span>
+                  </div>
+                  {viewingCollection.receipt_url && (
+                    <div className="flex items-center gap-2 no-print">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewReceiptUrl(viewingCollection.receipt_url!)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1 hover:underline cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Enlarge</span>
+                      </button>
+                      <span className="text-gray-300">•</span>
+                      <a
+                        href={viewingCollection.receipt_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1 hover:underline"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open Link</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {viewingCollection.receipt_url ? (
+                  <div className="space-y-2">
+                    <div
+                      onClick={() => setPreviewReceiptUrl(viewingCollection.receipt_url!)}
+                      className="relative group rounded-xl border border-gray-200 overflow-hidden bg-slate-900/5 max-h-64 flex items-center justify-center p-2 cursor-pointer hover:border-blue-300 transition-all"
+                    >
+                      <img
+                        src={viewingCollection.receipt_url}
+                        alt="Payment Receipt Attachment"
+                        className="max-h-60 max-w-full object-contain rounded-lg transition-transform group-hover:scale-[1.02]"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-xs font-semibold no-print">
+                        <Eye className="w-4 h-4" />
+                        <span>Click to view full image</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-gray-500 truncate font-mono">
+                      {viewingCollection.receipt_url}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-gray-50 rounded-lg text-center text-gray-400 text-xs italic">
+                    No receipt or image proof attached to this collection record.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-wrap justify-between items-center gap-3 shrink-0 no-print">
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/admin/billings/${viewingCollection.billing_id}/pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                >
+                  <FileText className="w-3.5 h-3.5 text-gray-600" />
+                  <span>Invoice Statement PDF</span>
+                  <ExternalLink className="w-3 h-3 text-gray-400" />
+                </a>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Print Receipt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingCollection(null)}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Embedded Print Styling */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              #printable-collection-receipt-container,
+              #printable-collection-receipt-container * {
+                visibility: visible;
+              }
+              #printable-collection-receipt-container {
+                position: fixed !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                max-height: none !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 24px !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+                border: none !important;
+                overflow: visible !important;
+                z-index: 999999 !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+            }
+          `
+        }}
+      />
     </div>
   );
 }
