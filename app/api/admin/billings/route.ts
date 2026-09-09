@@ -37,11 +37,11 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // Validation
-    if (!billing_type_id || !tenant_id || !amount || !due_date) {
+    if (!billing_type_id || !tenant_id || !amount) {
       return NextResponse.json(
         {
           success: false,
-          error: "Billing type, tenant, amount, and due date are required.",
+          error: "Billing type, tenant, and amount are required.",
         },
         { status: 400 },
       );

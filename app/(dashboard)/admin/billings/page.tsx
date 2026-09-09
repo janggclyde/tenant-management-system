@@ -38,21 +38,20 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { BillingRecord, BillingTypeRecord, BillingFrequency } from "@/lib/billingsStore";
-import { formatBillingReference } from "@/lib/utils";
-
-function formatBillingCycle(cycle?: string): string {
-  if (!cycle) return "Monthly";
-  const trimmed = cycle.trim();
-  switch (trimmed.toLowerCase()) {
-    case "quarterly": return "Quarterly";
-    case "annually":
-    case "annual": return "Annually";
-    case "one_time":
-    case "one-time": return "One-time";
-    case "monthly": return "Monthly";
-    default: return trimmed;
-  }
-}
+import {
+  formatBillingReference,
+  formatBillingCycle,
+  computeDueDateFromBillingType,
+  MONTH_NAMES,
+  SHORT_MONTH_NAMES,
+  parseMoveInDate,
+  formatDateRange,
+  addMonthsToDate,
+  parseDateRangeFromCycle,
+  computeDefaultDateRange,
+  determineBillingDateRange,
+  type BillingDateRangeResult,
+} from "@/lib/utils";
 
 function isValidTenantEmail(email?: string | null): boolean {
   if (!email || typeof email !== "string") return false;
@@ -60,43 +59,12 @@ function isValidTenantEmail(email?: string | null): boolean {
   return Boolean(trimmed && trimmed.includes("@") && !trimmed.endsWith("@noemail.local"));
 }
 
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-const SHORT_MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-];
-
 const QUARTER_OPTIONS = [
   { value: "Q1", label: "Q1 (Jan – Mar)" },
   { value: "Q2", label: "Q2 (Apr – Jun)" },
   { value: "Q3", label: "Q3 (Jul – Sep)" },
   { value: "Q4", label: "Q4 (Oct – Dec)" },
 ];
-
-function parseMoveInDate(moveInDateStr?: string): { day: number; monthIndex: number; year: number } {
-  if (!moveInDateStr) {
-    const now = new Date();
-    return { day: 1, monthIndex: now.getMonth(), year: now.getFullYear() };
-  }
-  const cleanStr = moveInDateStr.split("T")[0];
-  const parts = cleanStr.split("-").map(Number);
-  if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
-    return {
-      year: parts[0],
-      monthIndex: parts[1] - 1, // 0-indexed month
-      day: parts[2],
-    };
-  }
-  const d = new Date(moveInDateStr);
-  if (!isNaN(d.getTime())) {
-    return { day: d.getDate(), monthIndex: d.getMonth(), year: d.getFullYear() };
-  }
-  return { day: 1, monthIndex: new Date().getMonth(), year: new Date().getFullYear() };
-}
 
 function getCycleMultiplier(cycle?: string): number {
   if (!cycle) return 1;
@@ -134,33 +102,29 @@ function computeCycleValue(
   const { day, monthIndex } = parseMoveInDate(moveInDateStr);
   const yr = parseInt(year, 10) || new Date().getFullYear();
 
-  switch (freq) {
-    case "monthly": {
-      const startMonthIndex = MONTH_NAMES.findIndex(
-        (m) => m.toLowerCase() === month.toLowerCase()
-      );
-      const safeStartIndex = startMonthIndex >= 0 ? startMonthIndex : 0;
-      const endMonthIndex = (safeStartIndex + 1) % 12;
-      const startMonthName = MONTH_NAMES[safeStartIndex];
-      const endMonthName = MONTH_NAMES[endMonthIndex];
-      return `${startMonthName} ${day} - ${endMonthName} ${day}`;
-    }
-    case "quarterly": {
-      const qNum = parseInt(quarter.replace(/\D/g, ""), 10) || 1;
-      const startMIdx = (qNum - 1) * 3;
-      const endMIdx = (startMIdx + 3) % 12;
-      const endYr = startMIdx + 3 >= 12 ? yr + 1 : yr;
-      return `${SHORT_MONTH_NAMES[startMIdx]} ${day} ${yr} - ${SHORT_MONTH_NAMES[endMIdx]} ${day} ${endYr}`;
-    }
-    case "annually": {
-      const mShort = SHORT_MONTH_NAMES[monthIndex] || "Jan";
-      return `${mShort} ${day} ${yr} - ${mShort} ${day} ${yr + 1}`;
-    }
-    case "one_time":
-      return "One-time";
-    default:
-      return `${month} ${day} - ${MONTH_NAMES[(MONTH_NAMES.indexOf(month) + 1) % 12]} ${day}`;
+  if (freq === "one_time") return "One-time";
+
+  let startMIdx = 0;
+  let monthsToAdd = 1;
+  if (freq === "quarterly") {
+    const qNum = parseInt(quarter.replace(/\D/g, ""), 10) || 1;
+    startMIdx = (qNum - 1) * 3;
+    monthsToAdd = 3;
+  } else if (freq === "annually") {
+    startMIdx = monthIndex >= 0 ? monthIndex : 0;
+    monthsToAdd = 12;
+  } else {
+    // monthly
+    const mIdx = MONTH_NAMES.findIndex((m) => m.toLowerCase() === month.toLowerCase());
+    startMIdx = mIdx >= 0 ? mIdx : 0;
+    monthsToAdd = 1;
   }
+
+  const maxDays = new Date(yr, startMIdx + 1, 0).getDate();
+  const clampedDay = Math.min(day, maxDays);
+  const startStr = `${yr}-${String(startMIdx + 1).padStart(2, "0")}-${String(clampedDay).padStart(2, "0")}`;
+  const endStr = addMonthsToDate(startStr, monthsToAdd);
+  return formatDateRange(startStr, endStr);
 }
 
 function parseCycleState(cycleStr?: string, defaultFrequency: BillingFrequency = "monthly") {
@@ -246,14 +210,14 @@ function parseCycleState(cycleStr?: string, defaultFrequency: BillingFrequency =
     };
   }
 
-  // Check Monthly Range: e.g. "June 21 - July 21" or "June 21 - July 21 2026"
-  const monthlyRangeMatch = str.match(/^([A-Za-z]+)\s+\d+\s*-\s*([A-Za-z]+)\s+\d+(?:\s+(\d{4}))?$/i);
+  // Check Monthly Range: e.g. "June 21 - July 21" or "June 21 - July 21 2026" or "August 6 - September 6 2026"
+  const monthlyRangeMatch = str.match(/^([A-Za-z]+)\s+\d+(?:,?\s+(\d{4}))?\s*-\s*([A-Za-z]+)\s+\d+(?:,?\s+(\d{4}))?$/i);
   if (monthlyRangeMatch) {
     const foundMonth = MONTH_NAMES.find((m) => m.toLowerCase().startsWith(monthlyRangeMatch[1].toLowerCase()));
     return {
       frequency: "monthly" as BillingFrequency,
       month: foundMonth || defaultMonth,
-      year: monthlyRangeMatch[3] || currentYear,
+      year: monthlyRangeMatch[4] || monthlyRangeMatch[2] || currentYear,
       quarter: defaultQuarter,
     };
   }
@@ -447,9 +411,7 @@ export default function BillingsPage() {
     billing_type_id: "",
     billing_cycle: "monthly",
     base_amount: "0",
-    due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0],
+    due_date: computeDueDateFromBillingType(null),
     late_fee_applied: "0",
   });
 
@@ -464,6 +426,10 @@ export default function BillingsPage() {
   const [cycleYear, setCycleYear] = useState<string>(() => {
     return new Date().getFullYear().toString();
   });
+  const [cycleStartDate, setCycleStartDate] = useState<string>("");
+  const [cycleEndDate, setCycleEndDate] = useState<string>("");
+  const [cycleAdjustment, setCycleAdjustment] = useState<BillingDateRangeResult | null>(null);
+  const [isCustomDateRange, setIsCustomDateRange] = useState(false);
 
   const availableYears = useMemo(() => {
     const currentY = new Date().getFullYear();
@@ -473,6 +439,21 @@ export default function BillingsPage() {
   const selectedTenantInfo = useMemo(() => {
     return tenantsUnits.find((tu) => tu.tenant_id.toString() === formData.tenant_id);
   }, [tenantsUnits, formData.tenant_id]);
+
+  const selectedBillingTypeInfo = useMemo(() => {
+    return billingTypes.find((bt) => bt.id.toString() === formData.billing_type_id);
+  }, [billingTypes, formData.billing_type_id]);
+
+  const previousBillingSummary = useMemo(() => {
+    if (!formData.tenant_id) return null;
+    return determineBillingDateRange(
+      formData.tenant_id,
+      formData.billing_type_id || (billingTypes[0]?.id?.toString() ?? "1"),
+      billings,
+      selectedTenantInfo?.move_in_date,
+      cycleFrequency
+    );
+  }, [formData.tenant_id, formData.billing_type_id, billings, selectedTenantInfo?.move_in_date, cycleFrequency]);
 
   const { day: moveInDay, monthIndex: moveInMonthIndex } = useMemo(() => {
     return parseMoveInDate(selectedTenantInfo?.move_in_date);
@@ -552,7 +533,23 @@ export default function BillingsPage() {
       const btData = await btRes.json();
 
       if (tuData.success) setTenantsUnits(tuData.tenantsUnits || []);
-      if (btData.success) setBillingTypes(btData.billingTypes || []);
+      if (btData.success) {
+        const types: BillingTypeRecord[] = btData.billingTypes || [];
+        setBillingTypes(types);
+        if (types.length > 0) {
+          setFormData((prev) => {
+            if (!prev.billing_type_id) {
+              const defaultDueDate = computeDueDateFromBillingType(types[0]);
+              return {
+                ...prev,
+                billing_type_id: types[0].id.toString(),
+                due_date: defaultDueDate,
+              };
+            }
+            return prev;
+          });
+        }
+      }
     } catch (err) {
       console.error("Failed to fetch options", err);
     }
@@ -808,6 +805,7 @@ export default function BillingsPage() {
   // Open Create Modal
   const handleOpenCreateModal = () => {
     setEditingBilling(null);
+    setIsCustomDateRange(false);
     const defaultTenant = tenantsUnits[0];
     const defaultType = billingTypes[0];
 
@@ -819,20 +817,23 @@ export default function BillingsPage() {
     const initialBaseAmt = defaultTenant?.monthly_rent !== undefined ? defaultTenant.monthly_rent.toString() : "0";
     
     const now = new Date();
+    const initialFreq = (defaultType?.frequency || "monthly") as BillingFrequency;
+    setCycleFrequency(initialFreq);
+
     const currMonth = MONTH_NAMES[now.getMonth()] || "January";
     const currQuarter = `Q${Math.floor(now.getMonth() / 3) + 1}`;
     const currYear = now.getFullYear().toString();
-    const initialFreq = (defaultType?.frequency || "monthly") as BillingFrequency;
-    const initialCycle = computeCycleValue(initialFreq, currMonth, currQuarter, currYear, defaultTenant?.move_in_date);
-
-    setCycleFrequency(initialFreq);
     setCycleMonth(currMonth);
     setCycleQuarter(currQuarter);
     setCycleYear(currYear);
 
-    const initialDueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
+    const defaultRange = computeDefaultDateRange(defaultTenant?.move_in_date, initialFreq, now);
+    setCycleStartDate(defaultRange.startDate);
+    setCycleEndDate(defaultRange.endDate);
+    setCycleAdjustment(null);
+
+    const initialCycle = computeCycleValue(initialFreq, currMonth, currQuarter, currYear, defaultTenant?.move_in_date);
+    const initialDueDate = computeDueDateFromBillingType(defaultType, now);
 
     setFormData({
       tenant_id: initialTenantId,
@@ -892,6 +893,21 @@ export default function BillingsPage() {
     setCycleQuarter(parsed.quarter);
     setCycleYear(parsed.year);
 
+    const parsedRange = parseDateRangeFromCycle(billing.billing_cycle || undefined, billing.due_date || (billing as any).createdAt);
+    const standardDefaultRange = computeDefaultDateRange(currentTenant?.move_in_date, defaultFreq);
+
+    if (parsedRange) {
+      setCycleStartDate(parsedRange.startDate);
+      setCycleEndDate(parsedRange.endDate);
+      const isCustom = parsedRange.startDate !== standardDefaultRange.startDate || parsedRange.endDate !== standardDefaultRange.endDate;
+      setIsCustomDateRange(isCustom);
+    } else {
+      setCycleStartDate(standardDefaultRange.startDate);
+      setCycleEndDate(standardDefaultRange.endDate);
+      setIsCustomDateRange(false);
+    }
+    setCycleAdjustment(null);
+
     const currentCycle = billing.billing_cycle || computeCycleValue(parsed.frequency, parsed.month, parsed.quarter, parsed.year, currentTenant?.move_in_date);
 
     setFormData({
@@ -939,7 +955,33 @@ export default function BillingsPage() {
   const handleTenantChange = (tenantIdStr: string) => {
     const selectedTU = tenantsUnits.find((tu) => tu.tenant_id.toString() === tenantIdStr);
     const unitRate = selectedTU?.monthly_rent !== undefined ? selectedTU.monthly_rent.toString() : "0";
-    const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, cycleYear, selectedTU?.move_in_date);
+
+    let newCycle: string;
+    if (isCustomDateRange) {
+      const rangeResult = determineBillingDateRange(
+        tenantIdStr,
+        formData.billing_type_id || (billingTypes[0]?.id?.toString() ?? "1"),
+        billings,
+        selectedTU?.move_in_date,
+        cycleFrequency
+      );
+
+      setCycleStartDate(rangeResult.startDate);
+      setCycleEndDate(rangeResult.endDate);
+      setCycleAdjustment(rangeResult.isFromPrevious ? rangeResult : null);
+
+      const parsedState = parseCycleState(rangeResult.cycleString, cycleFrequency);
+      setCycleMonth(parsedState.month);
+      setCycleQuarter(parsedState.quarter);
+      setCycleYear(parsedState.year);
+      newCycle = rangeResult.cycleString;
+    } else {
+      setCycleAdjustment(null);
+      newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, cycleYear, selectedTU?.move_in_date);
+      const defaultRange = computeDefaultDateRange(selectedTU?.move_in_date, cycleFrequency);
+      setCycleStartDate(defaultRange.startDate);
+      setCycleEndDate(defaultRange.endDate);
+    }
 
     setFormData((prev) => ({
       ...prev,
@@ -960,12 +1002,41 @@ export default function BillingsPage() {
     const selectedTypeObj = billingTypes.find((bt) => bt.id.toString() === typeIdStr);
     const newFreq = (selectedTypeObj?.frequency || "monthly") as BillingFrequency;
     setCycleFrequency(newFreq);
-    const newCycle = computeCycleValue(newFreq, cycleMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
+
+    let newCycle: string;
+    if (isCustomDateRange) {
+      const rangeResult = determineBillingDateRange(
+        formData.tenant_id,
+        typeIdStr,
+        billings,
+        selectedTenantInfo?.move_in_date,
+        newFreq
+      );
+
+      setCycleStartDate(rangeResult.startDate);
+      setCycleEndDate(rangeResult.endDate);
+      setCycleAdjustment(rangeResult.isFromPrevious ? rangeResult : null);
+
+      const parsedState = parseCycleState(rangeResult.cycleString, newFreq);
+      setCycleMonth(parsedState.month);
+      setCycleQuarter(parsedState.quarter);
+      setCycleYear(parsedState.year);
+      newCycle = rangeResult.cycleString;
+    } else {
+      setCycleAdjustment(null);
+      newCycle = computeCycleValue(newFreq, cycleMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
+      const defaultRange = computeDefaultDateRange(selectedTenantInfo?.move_in_date, newFreq);
+      setCycleStartDate(defaultRange.startDate);
+      setCycleEndDate(defaultRange.endDate);
+    }
+
+    const newDueDate = computeDueDateFromBillingType(selectedTypeObj);
 
     setFormData((prev) => ({ 
       ...prev, 
       billing_type_id: typeIdStr,
       billing_cycle: newCycle,
+      due_date: newDueDate,
     }));
 
     const nextReadings = {
@@ -990,13 +1061,149 @@ export default function BillingsPage() {
       if (formData.tenant_id) fetchPreviousReadingsForTenant(formData.tenant_id);
     }
 
-    triggerCalculation(typeIdStr, formData.base_amount, formData.due_date, nextReadings, newCycle);
+    triggerCalculation(typeIdStr, formData.base_amount, newDueDate, nextReadings, newCycle);
+  };
+
+  // Handle Custom Date Range toggle switch
+  const handleToggleCustomDateRange = (checked: boolean) => {
+    setIsCustomDateRange(checked);
+    if (checked) {
+      const rangeResult = determineBillingDateRange(
+        formData.tenant_id,
+        formData.billing_type_id || (billingTypes[0]?.id?.toString() ?? "1"),
+        billings,
+        selectedTenantInfo?.move_in_date,
+        cycleFrequency
+      );
+      setCycleStartDate(rangeResult.startDate);
+      setCycleEndDate(rangeResult.endDate);
+      setCycleAdjustment(rangeResult.isFromPrevious ? rangeResult : null);
+
+      const parsedState = parseCycleState(rangeResult.cycleString, cycleFrequency);
+      setCycleMonth(parsedState.month);
+      setCycleQuarter(parsedState.quarter);
+      setCycleYear(parsedState.year);
+
+      setFormData((prev) => ({ ...prev, billing_cycle: rangeResult.cycleString }));
+      triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, rangeResult.cycleString);
+    } else {
+      setCycleAdjustment(null);
+      const standardCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
+      const defaultRange = computeDefaultDateRange(selectedTenantInfo?.move_in_date, cycleFrequency);
+      setCycleStartDate(defaultRange.startDate);
+      setCycleEndDate(defaultRange.endDate);
+
+      setFormData((prev) => ({ ...prev, billing_cycle: standardCycle }));
+      triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, standardCycle);
+    }
+  };
+
+  // Handle manual Start Date change
+  const handleStartDateChange = (newStartDate: string) => {
+    setCycleStartDate(newStartDate);
+    if (!newStartDate) return;
+
+    // By default, project end date based on current frequency
+    const months = cycleFrequency === "quarterly" ? 3 : cycleFrequency === "annually" ? 12 : cycleFrequency === "one_time" ? 0 : 1;
+    const newEndDate = months > 0 ? addMonthsToDate(newStartDate, months) : newStartDate;
+    setCycleEndDate(newEndDate);
+
+    const newCycleStr = formatDateRange(newStartDate, newEndDate);
+    const parsedState = parseCycleState(newCycleStr, cycleFrequency);
+    setCycleMonth(parsedState.month);
+    setCycleQuarter(parsedState.quarter);
+    setCycleYear(parsedState.year);
+
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycleStr }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycleStr);
+  };
+
+  // Handle manual End Date change
+  const handleEndDateChange = (newEndDate: string) => {
+    setCycleEndDate(newEndDate);
+    if (!newEndDate || !cycleStartDate) return;
+
+    const newCycleStr = formatDateRange(cycleStartDate, newEndDate);
+    const parsedState = parseCycleState(newCycleStr, cycleFrequency);
+    setCycleMonth(parsedState.month);
+    setCycleQuarter(parsedState.quarter);
+    setCycleYear(parsedState.year);
+
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycleStr }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycleStr);
+  };
+
+  // Reset range to default tenant move-in day logic
+  const handleResetToDefaultRange = () => {
+    const defaultRange = computeDefaultDateRange(selectedTenantInfo?.move_in_date, cycleFrequency);
+    setCycleStartDate(defaultRange.startDate);
+    setCycleEndDate(defaultRange.endDate);
+    setCycleAdjustment(null);
+
+    const newCycleStr = formatDateRange(defaultRange.startDate, defaultRange.endDate);
+    const parsedState = parseCycleState(newCycleStr, cycleFrequency);
+    setCycleMonth(parsedState.month);
+    setCycleQuarter(parsedState.quarter);
+    setCycleYear(parsedState.year);
+
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycleStr }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycleStr);
+  };
+
+  // Sync to previous billing if available
+  const handleSyncWithPreviousBilling = () => {
+    if (!formData.tenant_id) return;
+    const rangeResult = determineBillingDateRange(
+      formData.tenant_id,
+      formData.billing_type_id || (billingTypes[0]?.id?.toString() ?? "1"),
+      billings,
+      selectedTenantInfo?.move_in_date,
+      cycleFrequency
+    );
+    if (rangeResult.isFromPrevious) {
+      setCycleStartDate(rangeResult.startDate);
+      setCycleEndDate(rangeResult.endDate);
+      setCycleAdjustment(rangeResult);
+
+      const newCycleStr = rangeResult.cycleString;
+      const parsedState = parseCycleState(newCycleStr, cycleFrequency);
+      setCycleMonth(parsedState.month);
+      setCycleQuarter(parsedState.quarter);
+      setCycleYear(parsedState.year);
+
+      setFormData((prev) => ({ ...prev, billing_cycle: newCycleStr }));
+      triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycleStr);
+    }
+  };
+
+  // Quick Step (+1 Mo / -1 Mo)
+  const handleStepMonth = (months: number) => {
+    if (!cycleStartDate || !cycleEndDate) return;
+    const nextStart = addMonthsToDate(cycleStartDate, months);
+    const nextEnd = addMonthsToDate(cycleEndDate, months);
+    setCycleStartDate(nextStart);
+    setCycleEndDate(nextEnd);
+
+    const newCycleStr = formatDateRange(nextStart, nextEnd);
+    const parsedState = parseCycleState(newCycleStr, cycleFrequency);
+    setCycleMonth(parsedState.month);
+    setCycleQuarter(parsedState.quarter);
+    setCycleYear(parsedState.year);
+
+    setFormData((prev) => ({ ...prev, billing_cycle: newCycleStr }));
+    triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycleStr);
   };
 
   // Handle Month Change
   const handleMonthChange = (newMonth: string) => {
     setCycleMonth(newMonth);
     const newCycle = computeCycleValue("monthly", newMonth, cycleQuarter, cycleYear, selectedTenantInfo?.move_in_date);
+    const parsedRange = parseDateRangeFromCycle(newCycle);
+    if (parsedRange) {
+      setCycleStartDate(parsedRange.startDate);
+      setCycleEndDate(parsedRange.endDate);
+    }
+    setCycleAdjustment(null);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -1005,6 +1212,12 @@ export default function BillingsPage() {
   const handleQuarterChange = (newQuarter: string) => {
     setCycleQuarter(newQuarter);
     const newCycle = computeCycleValue("quarterly", cycleMonth, newQuarter, cycleYear, selectedTenantInfo?.move_in_date);
+    const parsedRange = parseDateRangeFromCycle(newCycle);
+    if (parsedRange) {
+      setCycleStartDate(parsedRange.startDate);
+      setCycleEndDate(parsedRange.endDate);
+    }
+    setCycleAdjustment(null);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -1013,6 +1226,12 @@ export default function BillingsPage() {
   const handleYearChange = (newYear: string) => {
     setCycleYear(newYear);
     const newCycle = computeCycleValue(cycleFrequency, cycleMonth, cycleQuarter, newYear, selectedTenantInfo?.move_in_date);
+    const parsedRange = parseDateRangeFromCycle(newCycle);
+    if (parsedRange) {
+      setCycleStartDate(parsedRange.startDate);
+      setCycleEndDate(parsedRange.endDate);
+    }
+    setCycleAdjustment(null);
     setFormData((prev) => ({ ...prev, billing_cycle: newCycle }));
     triggerCalculation(formData.billing_type_id, formData.base_amount, formData.due_date, undefined, newCycle);
   };
@@ -1942,156 +2161,273 @@ export default function BillingsPage() {
                     ))}
                   </select>
 
-                  {/* Billing Cycle Period Selector (Frequency pulled from Billing Type) */}
+                  {/* Billing Cycle & Date Range */}
                   <div className="mt-3 p-3.5 bg-gradient-to-br from-blue-50/70 via-slate-50 to-indigo-50/50 border border-blue-200/80 rounded-xl space-y-3 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
-                        <Repeat className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Billing Cycle *</span>
-                      </label>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] uppercase font-bold text-gray-500">
-                          Frequency:
+                    <div className="flex items-center justify-between border-b border-blue-100/80 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <Repeat className="w-4 h-4 text-blue-600" />
+                        <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                          Billing Cycle
                         </span>
                         <span className="text-[11px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md shadow-2xs">
                           {formatBillingCycle(cycleFrequency)}
                         </span>
                       </div>
+
+                      {/* Custom Date Range Toggle Switch */}
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                        <span className="text-[11px] font-semibold text-gray-600">
+                          Custom Date Range
+                        </span>
+                        <div className="relative">
+                          <input
+                            type="checkbox"
+                            checked={isCustomDateRange}
+                            onChange={(e) => handleToggleCustomDateRange(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                        </div>
+                      </label>
                     </div>
 
-                    {/* Dynamic Cycle Period Selector Based on Frequency pulled from Billing Type */}
-                    {cycleFrequency === "monthly" && (
-                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
-                        <label className="block text-[11px] font-semibold text-gray-700">
-                          Select Month & Year *
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Month (Cycle Period)</label>
-                            <div className="relative">
-                              <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
-                              <select
-                                value={cycleMonth}
-                                onChange={(e) => handleMonthChange(e.target.value)}
-                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                              >
-                                {MONTH_NAMES.map((m, idx) => {
-                                  const nextM = MONTH_NAMES[(idx + 1) % 12];
-                                  return (
+                    {!isCustomDateRange ? (
+                      /* Standard View: Follows Move-in Date Basis with Month/Quarter/Year selectors */
+                      <div className="space-y-2.5">
+                        {/* Tenant Move-in Info Banner */}
+                        <div className="flex items-center justify-between px-3 py-2 bg-blue-50/60 border border-blue-200/80 rounded-lg text-xs text-blue-800">
+                          <div className="flex items-center gap-1.5 font-medium">
+                            <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>
+                              Cycle based on tenant move-in day: <strong>Day {moveInDay}</strong>
+                              {selectedTenantInfo?.move_in_date && (
+                                <span className="text-blue-600 font-normal"> ({selectedTenantInfo.move_in_date})</span>
+                              )}
+                            </span>
+                          </div>
+                          {previousBillingSummary?.isFromPrevious && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCustomDateRange(true)}
+                              className="text-blue-700 hover:text-blue-900 font-semibold hover:underline cursor-pointer text-[11px] shrink-0 ml-2"
+                            >
+                              Previous bill found → Use Custom Range
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Standard Frequency Pickers (Monthly, Quarterly, Annually, One-time) */}
+                        {cycleFrequency === "monthly" && (
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+                              Billing Month & Year
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <select
+                                  value={cycleMonth}
+                                  onChange={(e) => handleMonthChange(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                >
+                                  {MONTH_NAMES.map((m) => (
                                     <option key={m} value={m}>
-                                      {m} {moveInDay} – {nextM} {moveInDay}
+                                      {m} (Day {moveInDay})
                                     </option>
-                                  );
-                                })}
-                              </select>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <select
+                                  value={cycleYear}
+                                  onChange={(e) => handleYearChange(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                >
+                                  {availableYears.map((y) => (
+                                    <option key={y} value={y}>{y}</option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
-                          <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Year</label>
-                            <select
-                              value={cycleYear}
-                              onChange={(e) => handleYearChange(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                            >
-                              {availableYears.map((y) => (
-                                <option key={y} value={y}>{y}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Standard monthly charge)</span>
-                        </p>
-                      </div>
-                    )}
+                        )}
 
-                    {cycleFrequency === "quarterly" && (
-                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
-                        <label className="block text-[11px] font-semibold text-gray-700">
-                          Select Billing Cycle (Quarter & Year) *
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Quarter (Cycle Period)</label>
-                            <div className="relative">
-                              <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
-                              <select
-                                value={cycleQuarter}
-                                onChange={(e) => handleQuarterChange(e.target.value)}
-                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                              >
-                                {QUARTER_OPTIONS.map((q) => {
-                                  const qNum = parseInt(q.value.replace(/\D/g, ""), 10) || 1;
-                                  const startMIdx = (qNum - 1) * 3;
-                                  const endMIdx = (startMIdx + 3) % 12;
-                                  const endYr = startMIdx + 3 >= 12 ? parseInt(cycleYear, 10) + 1 : parseInt(cycleYear, 10);
-                                  return (
+                        {cycleFrequency === "quarterly" && (
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+                              Billing Quarter & Year
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <select
+                                  value={cycleQuarter}
+                                  onChange={(e) => handleQuarterChange(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                >
+                                  {QUARTER_OPTIONS.map((q) => (
                                     <option key={q.value} value={q.value}>
-                                      {q.value} ({SHORT_MONTH_NAMES[startMIdx]} {moveInDay} – {SHORT_MONTH_NAMES[endMIdx]} {moveInDay}{startMIdx + 3 >= 12 ? ` ${endYr}` : ""})
+                                      {q.label}
                                     </option>
-                                  );
-                                })}
-                              </select>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <select
+                                  value={cycleYear}
+                                  onChange={(e) => handleYearChange(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                >
+                                  {availableYears.map((y) => (
+                                    <option key={y} value={y}>{y}</option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
-                          <div>
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Year</label>
+                        )}
+
+                        {cycleFrequency === "annually" && (
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+                              Billing Year
+                            </label>
                             <select
                               value={cycleYear}
                               onChange={(e) => handleYearChange(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
                             >
                               {availableYears.map((y) => (
-                                <option key={y} value={y}>{y}</option>
+                                <option key={y} value={y}>{y} Annual Cycle</option>
                               ))}
                             </select>
                           </div>
-                        </div>
-                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Multiplied × 3 months)</span>
-                        </p>
-                      </div>
-                    )}
+                        )}
 
-                    {cycleFrequency === "annually" && (
-                      <div className="space-y-1.5 pt-1 border-t border-blue-100">
-                        <label className="block text-[11px] font-semibold text-gray-700">
-                          Select Billing Cycle (Year) *
-                        </label>
-                        <div>
-                          <div className="relative">
-                            <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
-                            <select
-                              value={cycleYear}
-                              onChange={(e) => handleYearChange(e.target.value)}
-                              className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                            >
-                              {availableYears.map((y) => {
-                                const yrNum = parseInt(y, 10);
-                                const mShort = SHORT_MONTH_NAMES[moveInMonthIndex] || "Jan";
-                                return (
-                                  <option key={y} value={y}>
-                                    {mShort} {moveInDay} {yrNum} – {mShort} {moveInDay} {yrNum + 1}
-                                  </option>
-                                );
-                              })}
-                            </select>
+                        {cycleFrequency === "one_time" && (
+                          <div className="p-2.5 bg-amber-50/80 border border-amber-200/80 rounded-lg flex items-start gap-2">
+                            <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <div className="text-[11px] text-amber-800">
+                              <span className="font-bold">One-time Billing:</span> No recurring cycle applies.
+                            </div>
                           </div>
-                        </div>
-                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>Cycle selected: <strong className="font-bold">{formData.billing_cycle}</strong> (Multiplied × 12 months)</span>
+                        )}
+
+                        {/* Standard Cycle Result Display */}
+                        <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1.5 mt-1 bg-white/70 px-2.5 py-1.5 rounded-lg border border-blue-100">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>
+                            Cycle range: <strong className="font-bold text-gray-900">{formData.billing_cycle}</strong>
+                            {cycleFrequency === "quarterly" ? " (Multiplied × 3 months)" : cycleFrequency === "annually" ? " (Multiplied × 12 months)" : " (Standard monthly charge)"}
+                          </span>
                         </p>
                       </div>
-                    )}
+                    ) : (
+                      /* Custom Date Range View (Start Date & End Date fields) */
+                      <div className="space-y-2.5">
+                        {/* Dynamic Previous Billing Banner */}
+                        {cycleAdjustment ? (
+                          <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+                            <div className="flex items-center gap-1.5 font-medium">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>
+                                Auto-adjusted from previous billing
+                                {cycleAdjustment.previousEndDate && (
+                                  <span> (ended <strong>{cycleAdjustment.previousEndDate}</strong>)</span>
+                                )}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleResetToDefaultRange}
+                              className="text-emerald-700 hover:text-emerald-900 font-semibold hover:underline cursor-pointer text-[11px]"
+                            >
+                              Reset to Move-In Day
+                            </button>
+                          </div>
+                        ) : (
+                          previousBillingSummary?.isFromPrevious && (
+                            <div className="flex items-center justify-between px-3 py-2 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-800">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                                <span>Previous bill ended on {previousBillingSummary.previousEndDate}.</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleSyncWithPreviousBilling}
+                                className="text-blue-700 hover:text-blue-900 font-semibold hover:underline cursor-pointer text-[11px]"
+                              >
+                                Adjust from Previous Bill
+                              </button>
+                            </div>
+                          )
+                        )}
 
-                    {cycleFrequency === "one_time" && (
-                      <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-lg flex items-start gap-2 pt-1 border-t border-blue-100">
-                        <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                        <div className="text-[11px] text-amber-800">
-                          <span className="font-bold">One-time Billing Exception:</span> No recurring cycle period applies to this invoice. It is billed as a single non-recurring charge.
+                        {/* Direct Range Selector Inputs (Start Date & End Date) */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-[11px] font-semibold text-gray-700">
+                              Custom Billing Range (From – To) *
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleStepMonth(-1)}
+                                className="px-2 py-0.5 text-[10px] font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                                title="Step back 1 month"
+                              >
+                                -1 Mo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleStepMonth(1)}
+                                className="px-2 py-0.5 text-[10px] font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                                title="Step forward 1 month"
+                              >
+                                +1 Mo
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-gray-500 mb-0.5 font-medium">
+                                Start Date (From)
+                              </label>
+                              <div className="relative">
+                                <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                                <input
+                                  type="date"
+                                  value={cycleStartDate}
+                                  onChange={(e) => handleStartDateChange(e.target.value)}
+                                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                  required
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-gray-500 mb-0.5 font-medium">
+                                End Date (To)
+                              </label>
+                              <div className="relative">
+                                <Calendar className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                                <input
+                                  type="date"
+                                  value={cycleEndDate}
+                                  onChange={(e) => handleEndDateChange(e.target.value)}
+                                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Selected Custom Range Display */}
+                          <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1.5 mt-1 bg-white/70 px-2.5 py-1.5 rounded-lg border border-blue-100">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>
+                              Custom cycle selected: <strong className="font-bold text-gray-900">{formData.billing_cycle}</strong>
+                              {cycleFrequency === "quarterly" ? " (Multiplied × 3 months)" : cycleFrequency === "annually" ? " (Multiplied × 12 months)" : " (Standard monthly charge)"}
+                            </span>
+                          </p>
                         </div>
                       </div>
                     )}
@@ -2524,13 +2860,17 @@ export default function BillingsPage() {
                 {/* Due Date */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-blue-600" />
                       <span>Payment Due Date *</span>
                     </label>
-                    <span className="text-[10px] text-gray-400">
-                      Select calendar date
-                    </span>
+                    {selectedBillingTypeInfo && (
+                      <span className="text-[11px] text-blue-700 font-semibold bg-blue-50/80 px-2 py-0.5 rounded-md border border-blue-200">
+                        {selectedBillingTypeInfo.due_date_type === "fixed_day"
+                          ? `Default: Day ${selectedBillingTypeInfo.due_date_value} of month`
+                          : `Default: ${selectedBillingTypeInfo.due_date_value ?? 15} days after posting`}
+                      </span>
+                    )}
                   </div>
                   <input
                     type="date"
@@ -2552,10 +2892,34 @@ export default function BillingsPage() {
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-xl bg-white text-sm font-medium text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
                     required
                   />
-                  <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-gray-400 shrink-0" />
-                    <span>Choose the payment deadline day for this billing.</span>
-                  </p>
+                  <div className="flex items-center justify-between mt-1 text-[11px] text-gray-500">
+                    <p className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-gray-400 shrink-0" />
+                      <span>Choose the payment deadline day for this billing.</span>
+                    </p>
+                    {selectedBillingTypeInfo && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const resetDueDate = computeDueDateFromBillingType(selectedBillingTypeInfo);
+                          setFormData((prev) => ({
+                            ...prev,
+                            due_date: resetDueDate,
+                          }));
+                          triggerCalculation(
+                            formData.billing_type_id,
+                            formData.base_amount,
+                            resetDueDate,
+                            undefined,
+                            formData.billing_cycle
+                          );
+                        }}
+                        className="text-blue-600 hover:text-blue-800 font-medium hover:underline cursor-pointer"
+                      >
+                        Reset to default
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Submit Actions */}

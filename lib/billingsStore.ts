@@ -127,8 +127,8 @@ export function extractBillingFrequency(cycle?: string, defaultFrequency: Billin
   return defaultFrequency;
 }
 
-import { formatBillingCycle, formatBillingReference } from './utils';
-export { formatBillingCycle, formatBillingReference };
+import { formatBillingCycle, formatBillingReference, computeDueDateFromBillingType, type BillingTypeDueDateConfig } from './utils';
+export { formatBillingCycle, formatBillingReference, computeDueDateFromBillingType, type BillingTypeDueDateConfig };
 
 // SERVER-SIDE FINANCIAL & METER READING CALCULATIONS ENGINE
 export async function calculateServerSideBilling(data: {
@@ -223,24 +223,7 @@ export async function calculateServerSideBilling(data: {
   let computedDueDate = data.custom_due_date || '';
   if (!computedDueDate) {
     const startDate = data.posting_date ? new Date(data.posting_date) : new Date();
-    if (typeConfig?.due_date_type === 'days_after_posting') {
-      const days = typeConfig.due_date_value || 15;
-      const dueDateObj = new Date(startDate);
-      dueDateObj.setDate(dueDateObj.getDate() + days);
-      computedDueDate = dueDateObj.toISOString().split('T')[0];
-    } else if (typeConfig?.due_date_type === 'fixed_day') {
-      const targetDay = typeConfig.due_date_value || 1;
-      const dueDateObj = new Date(startDate);
-      dueDateObj.setDate(targetDay);
-      if (dueDateObj < startDate) {
-        dueDateObj.setMonth(dueDateObj.getMonth() + 1);
-      }
-      computedDueDate = dueDateObj.toISOString().split('T')[0];
-    } else {
-      const dueDateObj = new Date(startDate);
-      dueDateObj.setDate(dueDateObj.getDate() + 14);
-      computedDueDate = dueDateObj.toISOString().split('T')[0];
-    }
+    computedDueDate = computeDueDateFromBillingType(typeConfig, startDate);
   }
 
   return {
