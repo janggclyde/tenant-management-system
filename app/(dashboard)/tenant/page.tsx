@@ -114,8 +114,8 @@ export default function TenantDashboard() {
         <div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100">
-              <Sparkles className="w-3 h-3 text-blue-600" />
-              Resident Portal
+              {/* <Sparkles className="w-3 h-3 text-blue-600" /> */}
+              Tenant Portal
             </span>
             {tenant?.lease_expiry && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">

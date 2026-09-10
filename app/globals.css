@@ -106,3 +106,80 @@
 .animate-card-shake {
   animation: cardShake 0.45s ease-in-out;
 }
+
+@keyframes waveFlowFront {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-500px);
+  }
+}
+
+@keyframes waveFlowBack {
+  0% {
+    transform: translateX(-500px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+
+@keyframes bubbleFloat {
+  0% {
+    transform: translateY(140px) scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.85;
+    transform: translateY(90px) scale(0.9) translateX(-4px);
+  }
+  75% {
+    opacity: 0.85;
+    transform: translateY(30px) scale(1.05) translateX(4px);
+  }
+  100% {
+    transform: translateY(-15px) scale(1.2) translateX(0px);
+    opacity: 0;
+  }
+}
+
+@keyframes waterGlowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.45));
+  }
+  50% {
+    filter: drop-shadow(0 0 28px rgba(56, 189, 248, 0.85)) drop-shadow(0 0 45px rgba(14, 165, 233, 0.6));
+  }
+}
+
+@keyframes waterRipplePulse {
+  0% {
+    r: 8px;
+    opacity: 0.95;
+    stroke-width: 3px;
+  }
+  100% {
+    r: 220px;
+    opacity: 0;
+    stroke-width: 0.5px;
+  }
+}
+
+.animate-wave-front {
+  animation: waveFlowFront 2.6s linear infinite;
+}
+
+.animate-wave-back {
+  animation: waveFlowBack 3.8s linear infinite;
+}
+
+.animate-water-glow {
+  animation: waterGlowPulse 2.5s ease-in-out infinite;
+}
+
+.animate-ripple {
+  animation: waterRipplePulse 2s cubic-bezier(0.1, 0.7, 0.1, 1) infinite;
+}
+

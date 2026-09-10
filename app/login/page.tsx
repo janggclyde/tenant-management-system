@@ -2,16 +2,16 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  Building2, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
-  KeyRound, 
-  ShieldCheck, 
-  AlertCircle
+import {
+  Building2,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  KeyRound,
+  ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
 import RealEstateLoader from "@/components/RealEstateLoader";
 
@@ -23,7 +23,9 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loaderStatus, setLoaderStatus] = useState("Locating property profile...");
+  const [loaderStatus, setLoaderStatus] = useState(
+    "Locating property profile...",
+  );
   const [shake, setShake] = useState(false);
 
   const router = useRouter();
@@ -36,7 +38,7 @@ export default function LoginPage() {
 
     if (isLoading && !isSuccess) {
       setLoaderStatus("Scanning Sylvia property directory...");
-      
+
       timer1 = setTimeout(() => {
         setLoaderStatus("Validating resident & unit credentials...");
       }, 700);
@@ -79,7 +81,9 @@ export default function LoginPage() {
       const elapsed = Date.now() - startTime;
       const minPlayTime = 1200;
       if (elapsed < minPlayTime) {
-        await new Promise((resolve) => setTimeout(resolve, minPlayTime - elapsed));
+        await new Promise((resolve) =>
+          setTimeout(resolve, minPlayTime - elapsed),
+        );
       }
 
       if (res.ok) {
@@ -87,12 +91,12 @@ export default function LoginPage() {
         setUserRole(data.role);
         setLoaderStatus(
           `Access Granted! Welcome to ${
-            data.role === "super_admin" 
-              ? "Super Admin Portal" 
-              : data.role === "admin" 
-              ? "Property Management" 
-              : "Resident Portal"
-          }`
+            data.role === "super_admin"
+              ? "Super Admin Portal"
+              : data.role === "admin"
+                ? "Property Management"
+                : "Tenant Portal"
+          }`,
         );
 
         // Brief delay to let the user enjoy the unlocked door & success check
@@ -103,13 +107,18 @@ export default function LoginPage() {
         }, 900);
       } else {
         setIsLoading(false);
-        setError(data.error || "Invalid email or password. Please verify your credentials.");
+        setError(
+          data.error ||
+            "Invalid email or password. Please verify your credentials.",
+        );
         setShake(true);
         setTimeout(() => setShake(false), 500);
       }
     } catch (err) {
       setIsLoading(false);
-      setError("An unexpected network error occurred. Please check your connection and try again.");
+      setError(
+        "An unexpected network error occurred. Please check your connection and try again.",
+      );
       setShake(true);
       setTimeout(() => setShake(false), 500);
     }
@@ -119,22 +128,22 @@ export default function LoginPage() {
     <>
       {/* Full-Screen Real Estate Loading Overlay */}
       {isLoading && (
-        <RealEstateLoader 
-          statusText={loaderStatus} 
-          isSuccess={isSuccess} 
-          role={userRole} 
+        <RealEstateLoader
+          statusText={loaderStatus}
+          isSuccess={isSuccess}
+          role={userRole}
         />
       )}
 
       {/* Main Login Screen */}
       <div className="min-h-screen relative flex items-center justify-center bg-slate-950 p-4 sm:p-6 overflow-hidden select-none">
-        
         {/* Architectural Blueprint / Grid Backdrop */}
-        <div 
+        <div
           className="absolute inset-0 opacity-[0.07] pointer-events-none"
           style={{
-            backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
+            backgroundImage:
+              "linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
           }}
         />
 
@@ -144,7 +153,7 @@ export default function LoginPage() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[140px] pointer-events-none" />
 
         {/* Main Form Card */}
-        <div 
+        <div
           className={`relative z-10 max-w-md w-full bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl shadow-blue-950/40 border border-slate-200/80 p-6 sm:p-8 transition-all duration-300 ${
             shake ? "animate-card-shake" : ""
           }`}
@@ -179,7 +188,9 @@ export default function LoginPage() {
             <div className="bg-red-50/90 border border-red-200 text-red-700 p-3.5 rounded-xl text-sm mb-5 flex items-start gap-2.5 animate-in slide-in-from-top-2 duration-200">
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="font-medium text-red-800">Authentication Failed</p>
+                <p className="font-medium text-red-800">
+                  Authentication Failed
+                </p>
                 <p className="text-xs text-red-600 mt-0.5">{error}</p>
               </div>
             </div>
@@ -242,14 +253,15 @@ export default function LoginPage() {
               type="submit"
               className="w-full mt-2 relative group overflow-hidden bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/35 transition-all duration-200 flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer"
             >
-              <div 
+              <div
                 className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity pointer-events-none"
                 style={{
-                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)",
+                  background:
+                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)",
                   animation: "shimmerGlow 2s infinite",
                 }}
               />
-              
+
               <span className="relative flex items-center gap-2 text-sm">
                 Sign In to Sylvia
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
