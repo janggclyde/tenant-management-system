@@ -1,7 +1,33 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
-import { updateTenant, deleteTenant } from '@/lib/tenantsStore';
+import { updateTenant, deleteTenant, getTenantDetails } from '@/lib/tenantsStore';
 import { getAdminIdFromRequest } from '@/lib/auth';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const adminId = await getAdminIdFromRequest(request);
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, error: 'Invalid Tenant ID' }, { status: 400 });
+    }
+
+    const details = await getTenantDetails(id, adminId);
+    if (!details) {
+      return NextResponse.json({ success: false, error: 'Tenant record not found or access denied' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, ...details });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error.message || 'Failed to fetch tenant details' },
+      { status: 500 }
+    );
+  }
+}
 
 export async function PUT(
   request: NextRequest,

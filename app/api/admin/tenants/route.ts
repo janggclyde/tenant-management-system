@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   try {
     const adminId = await getAdminIdFromRequest(request);
     const body = await request.json();
-    const { first_name, last_name, email, emergency_contact, unit_id, move_in_date, move_out_date, document_url, password } = body;
+    const { first_name, last_name, email, phone, address, id_type, id_number, emergency_contact, unit_id, move_in_date, move_out_date, document_url, password } = body;
 
     // Validation
     if (!first_name || !first_name.trim()) {
@@ -45,6 +45,10 @@ export async function POST(request: NextRequest) {
       first_name: first_name.trim(),
       last_name: last_name.trim(),
       email: email ? email.trim() : undefined,
+      phone: phone ? phone.trim() : undefined,
+      address: address ? address.trim() : undefined,
+      id_type: id_type ? id_type.trim() : undefined,
+      id_number: id_number ? id_number.trim() : undefined,
       emergency_contact: emergency_contact ? emergency_contact.trim() : '',
       unit_id: Number(unit_id),
       move_in_date: String(move_in_date),

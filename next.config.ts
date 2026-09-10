@@ -3,7 +3,7 @@ const path = require("path");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["sequelize", "mysql2"],
+  serverExternalPackages: ["sequelize", "mysql2", "pdfkit"],
   experimental: {
     // optimizePackageImports: ["lucide-react", "recharts"],
   },
@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  // Trace AFM font files for serverless production environments
+  outputFileTracingIncludes: {
+    "/api/**/*": ["./assets/data/**/*", "./node_modules/pdfkit/js/data/**/*"],
+  },
   // Allow access to remote image placeholder.
   images: {
     remotePatterns: [
@@ -20,11 +24,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "picsum.photos",
         port: "",
-        pathname: "/**", // This allows any path under the hostname
+        pathname: "/**",
       },
     ],
   },
-  // output: "standalone", // Disabled to avoid Windows nft trace error on Next.js 15
   transpilePackages: ["motion"],
   webpack: (config, { isServer }) => {
     if (isServer) {

@@ -3,45 +3,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Announcement, Building, syncDatabase } from '@/db/models';
 import { getAdminIdFromRequest } from '@/lib/auth';
 
-let mockAnnouncements: any[] = [];
-
 export async function GET(request: NextRequest) {
   try {
     await syncDatabase();
     const adminId = await getAdminIdFromRequest(request);
 
-    try {
-      const dbAnnouncements = await Announcement.findAll({
-        where: { admin_id: adminId },
-        order: [['createdAt', 'DESC']]
-      });
+    const dbAnnouncements = await Announcement.findAll({
+      where: { admin_id: adminId },
+      include: [{ model: Building, required: false }],
+      order: [['createdAt', 'DESC']]
+    });
 
-      if (dbAnnouncements && dbAnnouncements.length > 0) {
-        const buildings = await Building.findAll({ where: { admin_id: adminId } });
-        const buildingMap = new Map(buildings.map((b: any) => [b.id, b.name]));
+    const formatted = dbAnnouncements.map((a: any) => {
+      const item = a.get({ plain: true });
+      return {
+        id: item.id,
+        admin_id: item.admin_id,
+        building_id: item.building_id,
+        building_name: item.Building?.name || (item.building_id ? `Building #${item.building_id}` : 'All Buildings'),
+        title: item.title,
+        content: item.content,
+        created_at: item.createdAt || new Date().toISOString()
+      };
+    });
 
-        const formatted = dbAnnouncements.map((a: any) => {
-          const item = a.get({ plain: true });
-          return {
-            id: item.id,
-            admin_id: item.admin_id,
-            building_id: item.building_id,
-            building_name: item.building_id ? (buildingMap.get(item.building_id) || 'Specific Building') : 'All Buildings',
-            title: item.title,
-            content: item.content,
-            created_at: item.createdAt || new Date().toISOString()
-          };
-        });
-
-        return NextResponse.json({ success: true, announcements: formatted });
-      }
-    } catch (dbErr) {
-      // Fallback to in-memory store
-    }
-
-    const filtered = mockAnnouncements.filter(a => !adminId || a.admin_id === adminId);
-    return NextResponse.json({ success: true, announcements: filtered });
+    return NextResponse.json({ success: true, announcements: formatted });
   } catch (err: any) {
+    console.error('Admin announcements GET error:', err);
     return NextResponse.json({ success: false, error: err.message || 'Failed to fetch announcements' }, { status: 500 });
   }
 }
@@ -62,49 +50,33 @@ export async function POST(request: NextRequest) {
 
     const targetBuildingId = building_id && building_id !== 'all' ? Number(building_id) : null;
 
-    try {
-      const created: any = await Announcement.create({
-        admin_id: adminId,
-        building_id: targetBuildingId,
-        title: title.trim(),
-        content: content.trim()
-      });
-
-      let buildingName = 'All Buildings';
-      if (targetBuildingId) {
-        const b: any = await Building.findByPk(targetBuildingId);
-        if (b) buildingName = b.name;
-      }
-
-      return NextResponse.json({
-        success: true,
-        announcement: {
-          id: created.id,
-          admin_id: adminId,
-          building_id: targetBuildingId,
-          building_name: buildingName,
-          title: created.title,
-          content: created.content,
-          created_at: created.createdAt
-        }
-      }, { status: 201 });
-    } catch (dbErr) {
-      // Fallback
-    }
-
-    const newId = mockAnnouncements.length > 0 ? Math.max(...mockAnnouncements.map(a => a.id)) + 1 : 1;
-    const newRecord = {
-      id: newId,
+    const created: any = await Announcement.create({
       admin_id: adminId,
       building_id: targetBuildingId,
-      building_name: targetBuildingId ? `Building #${targetBuildingId}` : 'All Buildings',
       title: title.trim(),
-      content: content.trim(),
-      created_at: new Date().toISOString()
-    };
-    mockAnnouncements.unshift(newRecord);
-    return NextResponse.json({ success: true, announcement: newRecord }, { status: 201 });
+      content: content.trim()
+    });
+
+    let buildingName = 'All Buildings';
+    if (targetBuildingId) {
+      const b: any = await Building.findByPk(targetBuildingId);
+      if (b) buildingName = b.name;
+    }
+
+    return NextResponse.json({
+      success: true,
+      announcement: {
+        id: created.id,
+        admin_id: adminId,
+        building_id: targetBuildingId,
+        building_name: buildingName,
+        title: created.title,
+        content: created.content,
+        created_at: created.createdAt
+      }
+    }, { status: 201 });
   } catch (err: any) {
+    console.error('Admin announcements POST error:', err);
     return NextResponse.json({ success: false, error: err.message || 'Failed to post announcement' }, { status: 500 });
   }
 }
@@ -120,17 +92,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Announcement ID is required.' }, { status: 400 });
     }
 
-    try {
-      await Announcement.destroy({ where: { id, admin_id: adminId } });
-    } catch (err) {
-      // Fallback
+    const deletedCount = await Announcement.destroy({ where: { id, admin_id: adminId } });
+    if (deletedCount === 0) {
+      return NextResponse.json({ success: false, error: 'Announcement not found or unauthorized' }, { status: 404 });
     }
-
-    const idx = mockAnnouncements.findIndex(a => a.id === id && (!adminId || a.admin_id === adminId));
-    if (idx !== -1) mockAnnouncements.splice(idx, 1);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
+    console.error('Admin announcements DELETE error:', err);
     return NextResponse.json({ success: false, error: err.message || 'Failed to delete announcement' }, { status: 500 });
   }
 }

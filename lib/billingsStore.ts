@@ -468,6 +468,22 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
           ? `${infoJson.first_name} ${infoJson.last_name || ''}`.trim()
           : (cleanEmail || `Tenant #${item.tenant_id}`);
 
+        const unitRent = Number(item.Unit?.monthly_rent || 0);
+        const electricityAmt = Number(item.meter_readings_json?.electricity?.amount || 0);
+        const waterAmt = Number(item.meter_readings_json?.water?.amount || 0);
+        const submetersTotal = electricityAmt + waterAmt;
+        const taxAmt = Number(item.tax_amount || 0);
+        const transferAmt = Number(item.transfer_fee || 0);
+        const lateAmt = Number(item.late_fee_applied || 0);
+        let extraChargesTotal = 0;
+        if (Array.isArray(item.extra_charges_json)) {
+          extraChargesTotal = item.extra_charges_json.reduce((acc: number, x: any) => acc + Number(x.amount || 0), 0);
+        }
+        let baseRent = unitRent;
+        if (baseRent <= 0) {
+          baseRent = Math.max(0, Number(item.amount) - submetersTotal - extraChargesTotal - taxAmt - transferAmt - lateAmt);
+        }
+
         return {
           id: item.id,
           reference_number: formatBillingReference(item.id),
@@ -476,11 +492,11 @@ export async function getBillingsList(filters?: { query?: string; status?: strin
           tenant_id: item.tenant_id,
           unit_id: item.unit_id,
           billing_cycle: item.billing_cycle || item.BillingType?.frequency || 'monthly',
-          base_amount: Number(item.base_amount || item.amount),
+          base_amount: baseRent,
           tax_percentage: Number(item.BillingType?.tax_percentage || 0),
-          tax_amount: Number(item.tax_amount || 0),
-          transfer_fee: Number(item.transfer_fee || 0),
-          late_fee_applied: Number(item.late_fee_applied || 0),
+          tax_amount: taxAmt,
+          transfer_fee: transferAmt,
+          late_fee_applied: lateAmt,
           meter_readings_json: item.meter_readings_json || undefined,
           extra_charges_json: item.extra_charges_json || undefined,
           amount: Number(item.amount),
@@ -585,7 +601,7 @@ export async function createBilling(data: {
       tenant_id: data.tenant_id,
       unit_id: data.unit_id,
       billing_cycle: data.billing_cycle || calculated.billing_cycle || 'monthly',
-      base_amount: calculated.effective_base_amount,
+      base_amount: calculated.base_amount,
       tax_amount: calculated.tax_amount,
       transfer_fee: calculated.transfer_fee,
       late_fee_applied: calculated.late_fee_applied,

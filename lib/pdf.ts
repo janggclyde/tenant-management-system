@@ -1,4 +1,61 @@
 import PDFDocument from "pdfkit";
+import fs from "fs";
+import path from "path";
+import { getEmbeddedAfm } from "./afmFonts";
+
+// Ensure PDFKit AFM fonts (Times-Roman.afm, Times-Bold.afm, etc.) are always found in production serverless environments
+const originalReadFileSync = fs.readFileSync;
+if (!(fs as any).__pdfkitFontPatched) {
+  (fs as any).__pdfkitFontPatched = true;
+  (fs as any).readFileSync = function (file: any, options: any) {
+    if (typeof file === "string" && file.endsWith(".afm")) {
+      const filename = path.basename(file);
+
+      // 1. If file actually exists on disk at requested path, read it
+      try {
+        if (fs.existsSync(file)) {
+          return originalReadFileSync.call(fs, file, options);
+        }
+      } catch (e) {}
+
+      // 2. Check embedded in-memory AFM font dictionary (works in Vercel/Lambda/serverless without disk files)
+      const embedded = getEmbeddedAfm(filename);
+      if (embedded) {
+        if (
+          typeof options === "string" &&
+          (options === "utf8" || options === "utf-8")
+        ) {
+          return embedded;
+        }
+        if (
+          typeof options === "object" &&
+          (options?.encoding === "utf8" || options?.encoding === "utf-8")
+        ) {
+          return embedded;
+        }
+        return Buffer.from(embedded, "utf8");
+      }
+
+      // 3. Fallback to common disk paths
+      const fallbacks = [
+        path.join(process.cwd(), "assets/data", filename),
+        path.join(process.cwd(), "public/data", filename),
+        path.join(process.cwd(), "node_modules/pdfkit/js/data", filename),
+        path.join(__dirname, "data", filename),
+        path.join(process.cwd(), ".next/server/chunks/data", filename),
+      ];
+
+      for (const fb of fallbacks) {
+        try {
+          if (fs.existsSync(fb)) {
+            return originalReadFileSync.call(fs, fb, options);
+          }
+        } catch (e) {}
+      }
+    }
+    return originalReadFileSync.call(fs, file, options);
+  };
+}
 
 export interface BillPDFData {
   id: number;
@@ -104,7 +161,9 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         });
 
       let cycleLabel = "Monthly";
-      const rawCycle = billData.billing_cycle ? String(billData.billing_cycle).trim() : "";
+      const rawCycle = billData.billing_cycle
+        ? String(billData.billing_cycle).trim()
+        : "";
       if (rawCycle) {
         const lower = rawCycle.toLowerCase();
         if (lower === "quarterly") {
@@ -142,12 +201,10 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
           112,
           { align: "right", width: 225 },
         )
-        .text(
-          `Billing Cycle: ${cycleLabel}`,
-          320,
-          124,
-          { align: "right", width: 225 },
-        );
+        .text(`Billing Cycle: ${cycleLabel}`, 320, 124, {
+          align: "right",
+          width: 225,
+        });
 
       // Horizontal Divider
       doc
@@ -503,43 +560,43 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         );
 
       // --- PAYMENT INSTRUCTIONS BOX ---
-      const instY = tableY + 60;
-      doc.rect(50, instY, 495, 110).fillAndStroke(lightBg, borderColor);
+      // const instY = tableY + 60;
+      // doc.rect(50, instY, 495, 110).fillAndStroke(lightBg, borderColor);
 
-      doc
-        .fillColor(primaryColor)
-        .font("Times-Bold")
-        .fontSize(10)
-        .text("PAYMENT INSTRUCTIONS & REMITTANCE CHANNELS:", 65, instY + 12);
+      // doc
+      //   .fillColor(primaryColor)
+      //   .font("Times-Bold")
+      //   .fontSize(10)
+      //   .text("PAYMENT INSTRUCTIONS & REMITTANCE CHANNELS:", 65, instY + 12);
 
-      doc
-        .fillColor("#334155")
-        .font("Times-Roman")
-        .fontSize(8.5)
-        .text(
-          "1. Online Payment: Log in to your Tenant Portal and pay instantly via GCash, Maya, QR Ph, or Card through HitPay.",
-          65,
-          instY + 28,
-          { width: 465 },
-        )
-        .text(
-          "2. Bank Remittance / Over-the-Counter: Settle payment directly at the Property Management Office or authorized bank accounts.",
-          65,
-          instY + 44,
-          { width: 465 },
-        )
-        .text(
-          `3. Due Date Compliance: Please ensure full remittance on or before ${new Date(billData.due_date).toLocaleDateString()} to prevent automatic late penalty surcharges.`,
-          65,
-          instY + 60,
-          { width: 465 },
-        )
-        .text(
-          "4. Inquiries & Support: For billing adjustments or meter disputes, contact your property administrator immediately.",
-          65,
-          instY + 76,
-          { width: 465 },
-        );
+      // doc
+      //   .fillColor("#334155")
+      //   .font("Times-Roman")
+      //   .fontSize(8.5)
+      //   .text(
+      //     "1. Online Payment: Log in to your Tenant Portal and pay instantly via GCash, Maya, QR Ph, or Card through HitPay.",
+      //     65,
+      //     instY + 28,
+      //     { width: 465 },
+      //   )
+      //   .text(
+      //     "2. Bank Remittance / Over-the-Counter: Settle payment directly at the Property Management Office or authorized bank accounts.",
+      //     65,
+      //     instY + 44,
+      //     { width: 465 },
+      //   )
+      //   .text(
+      //     `3. Due Date Compliance: Please ensure full remittance on or before ${new Date(billData.due_date).toLocaleDateString()} to prevent automatic late penalty surcharges.`,
+      //     65,
+      //     instY + 60,
+      //     { width: 465 },
+      //   )
+      //   .text(
+      //     "4. Inquiries & Support: For billing adjustments or meter disputes, contact your property administrator immediately.",
+      //     65,
+      //     instY + 76,
+      //     { width: 465 },
+      //   );
 
       // --- FOOTER SECTION ---
       doc
@@ -576,7 +633,11 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
 export async function generateReceiptPDF(receiptData: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: "A4", margin: 50, font: "Times-Roman" });
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 50,
+        font: "Times-Roman",
+      });
       let buffers: Buffer[] = [];
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", () => {
