@@ -309,11 +309,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         .fillColor(secondaryColor)
         .font("Times-Roman")
         .fontSize(9)
-        .text(
-          `Lease charge (${cycleLabel}) for ${billData.unit_number}`,
-          250,
-          tableY + 7,
-        );
+        .text(`${cycleLabel} for ${billData.unit_number}`, 250, tableY + 7);
 
       doc
         .fillColor("#0f172a")
@@ -349,11 +345,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
           .fillColor(secondaryColor)
           .font("Times-Roman")
           .fontSize(8.5)
-          .text(
-            `Prev: ${prev} | Curr: ${curr} (${diff} kWh @ PHP ${rate}/kWh)`,
-            250,
-            tableY + 7,
-          );
+          .text(`Prev: ${prev} | Curr: ${curr}`, 250, tableY + 7);
 
         doc
           .fillColor("#0f172a")
@@ -390,11 +382,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
           .fillColor(secondaryColor)
           .font("Times-Roman")
           .fontSize(8.5)
-          .text(
-            `Prev: ${prev} | Curr: ${curr} (${diff} cu.m @ PHP ${rate}/cu.m)`,
-            250,
-            tableY + 7,
-          );
+          .text(`Prev: ${prev} | Curr: ${curr}`, 250, tableY + 7);
 
         doc
           .fillColor("#0f172a")
@@ -611,7 +599,7 @@ export async function generateBillPDF(billData: BillPDFData): Promise<Buffer> {
         .font("Times-Roman")
         .fontSize(8)
         .text(
-          "This is an official system-generated electronic billing statement produced by ApartManager SaaS Platform.",
+          "This is an official system-generated electronic billing statement.",
           50,
           760,
           { align: "center", width: 495 },

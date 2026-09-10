@@ -94,8 +94,7 @@ let mockSettings: SystemSettingsRecord = {
   smtp_user: "graph-657a92d845b902a0",
   default_sender_email: "sylvia@shieldhaus.uk",
   default_sender_name: "ApartManager Platform",
-  email_signature:
-    "ApartManager SaaS Platform - Simplifying Residential Property Management.",
+  email_signature: "Sylvia - Simplifying Residential Property Management.",
   admin_alert_email: "alerts@apartmanager.com",
   notification_events: { ...defaultNotificationEvents },
   platform_name: "ApartManager SaaS",
@@ -451,7 +450,7 @@ export async function testEmailSettings(
         <p style="margin: 0; font-size: 13px;"><strong>Dispatched At:</strong> ${new Date().toLocaleString()}</p>
       </div>
       <p style="color: #64748b; font-size: 12px; margin-bottom: 0;">
-        ApartManager SaaS Platform &bull; Sent automatically to verify gateway connectivity.
+        Sylvia - Simplifying Residential Property Management &bull; Sent automatically to verify gateway connectivity.
       </p>
     </div>
   `;
