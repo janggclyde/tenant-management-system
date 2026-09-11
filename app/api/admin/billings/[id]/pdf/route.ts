@@ -49,6 +49,7 @@ export async function GET(
       tenant_email: tenantEmail,
       unit_number: billing.unit_number || `Unit #${billing.unit_id}`,
       building_name: billing.building_name || 'Main Apartment Building',
+      building_address: billing.building_address || billing.Unit?.Building?.address || billing.Building?.address || '',
       base_amount: baseRent,
       tax_percentage: billing.tax_percentage,
       tax_amount: billing.tax_amount,

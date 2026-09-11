@@ -4,8 +4,6 @@ import mysql2 from "mysql2";
 
 dotenv.config();
 
-const dbUrl = process.env.DATABASE_URL || "mysql://root:@localhost:3306/sylvia";
-
 // const sequelize = new Sequelize(dbUrl, {
 //   dialect: "mysql",
 //   logging: false,
@@ -17,11 +15,19 @@ const sequelizeOptions = {
   dialect: "mysql" as const,
   dialectModule: mysql2,
   dialectOptions: {
+    connectTimeout: 60000, // Extends timeout to wait for cloud handshake
     ssl: {
+      require: true,
       rejectUnauthorized: false,
     },
   },
   logging: false,
+  pool: {
+    max: 5,
+    min: 0,
+    acquire: 30000,
+    idle: 10000,
+  },
 };
 
 const sequelize =
@@ -30,7 +36,7 @@ const sequelize =
     process.env.DB_NAME!,
     process.env.DB_USERNAME!,
     process.env.DB_PASSWORD!,
-    sequelizeOptions
+    sequelizeOptions,
   );
 
 if (process.env.NODE_ENV !== "production") {
@@ -335,36 +341,52 @@ export async function syncDatabase() {
     try {
       await sequelize.authenticate();
       try {
-        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'collected_date'");
+        const [cols]: any = await sequelize.query(
+          "SHOW COLUMNS FROM `Collections` LIKE 'collected_date'",
+        );
         if (!cols || cols.length === 0) {
-          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `collected_date` DATE NULL");
+          await sequelize.query(
+            "ALTER TABLE `Collections` ADD COLUMN `collected_date` DATE NULL",
+          );
         }
       } catch (colErr) {
         // Ignore column check fallback
       }
       try {
-        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'bank_name'");
+        const [cols]: any = await sequelize.query(
+          "SHOW COLUMNS FROM `Collections` LIKE 'bank_name'",
+        );
         if (!cols || cols.length === 0) {
-          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `bank_name` VARCHAR(255) NULL");
+          await sequelize.query(
+            "ALTER TABLE `Collections` ADD COLUMN `bank_name` VARCHAR(255) NULL",
+          );
         }
       } catch (colErr) {
         // Ignore column check fallback
       }
       try {
-        const [cols]: any = await sequelize.query("SHOW COLUMNS FROM `Collections` LIKE 'payment_reference'");
+        const [cols]: any = await sequelize.query(
+          "SHOW COLUMNS FROM `Collections` LIKE 'payment_reference'",
+        );
         if (!cols || cols.length === 0) {
-          await sequelize.query("ALTER TABLE `Collections` ADD COLUMN `payment_reference` VARCHAR(255) NULL");
+          await sequelize.query(
+            "ALTER TABLE `Collections` ADD COLUMN `payment_reference` VARCHAR(255) NULL",
+          );
         }
       } catch (colErr) {
         // Ignore column check fallback
       }
       try {
-        await sequelize.query("ALTER TABLE `Collections` MODIFY COLUMN `payment_method` VARCHAR(50) NOT NULL");
+        await sequelize.query(
+          "ALTER TABLE `Collections` MODIFY COLUMN `payment_method` VARCHAR(50) NOT NULL",
+        );
       } catch (colErr) {
         // Ignore column check fallback
       }
       try {
-        await sequelize.query("ALTER TABLE `Collections` MODIFY COLUMN `receipt_url` TEXT NULL");
+        await sequelize.query(
+          "ALTER TABLE `Collections` MODIFY COLUMN `receipt_url` TEXT NULL",
+        );
       } catch (colErr) {
         // Ignore column check fallback
       }

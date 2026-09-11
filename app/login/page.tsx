@@ -174,9 +174,9 @@ export default function LoginPage() {
               <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
                 Sylvia
               </h1>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+              {/* <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                 PropTech
-              </span>
+              </span> */}
             </div>
             <p className="text-sm text-slate-500 mt-1 font-medium">
               Intelligent Property & Tenant Management
